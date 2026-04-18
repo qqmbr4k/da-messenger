@@ -288,7 +288,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
           </div>
         )}
 
-        <MessageInput onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
+        <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
       </div>
 
       {room?.type !== 'DIRECT' && <MembersPanel roomId={roomId} />}
