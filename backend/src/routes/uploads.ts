@@ -1,4 +1,4 @@
-import { Router, Response, Request } from 'express'
+import { Router, Response, Request, NextFunction } from 'express'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -31,7 +31,16 @@ const upload = multer({
 const router = Router({ mergeParams: true })
 
 // Upload attachment to a message
-router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, res: Response) => {
+router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({ error: 'Max size: 20MB for files' })
+      return
+    }
+    if (err) { next(err); return }
+    next()
+  })
+}, async (req: AuthRequest, res: Response) => {
   const { roomId } = req.params
   if (!req.file) {
     res.status(400).json({ error: 'file required' })
