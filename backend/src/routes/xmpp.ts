@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import argon2 from 'argon2'
 import prisma from '../lib/prisma'
 import { requireAuth, AuthRequest } from '../middleware/auth'
@@ -6,10 +6,26 @@ import { xmppBridge } from '../xmpp/bridge'
 
 const router = Router()
 
-// --- ejabberd HTTP auth endpoints ---
-// ejabberd calls these with `?user=X&host=Y&password=Z` query params
+// Guard for ejabberd-internal auth endpoints — only allow requests from localhost/Docker network
+function internalOnly(req: Request, res: Response, next: NextFunction) {
+  // Strip IPv4-mapped IPv6 prefix so comparisons work uniformly
+  const raw = req.ip || ''
+  const ip = raw.startsWith('::ffff:') ? raw.slice(7) : raw
+  // Allow loopback and RFC-1918 ranges used by Docker
+  const allowed =
+    ip === '127.0.0.1' || ip === '::1' ||
+    ip.startsWith('172.') || ip.startsWith('10.') || ip.startsWith('192.168.')
+  if (!allowed) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+  next()
+}
 
-router.get('/auth/check', async (req: Request, res: Response) => {
+// --- ejabberd HTTP auth endpoints ---
+// ejabberd calls these from within the Docker network
+
+router.get('/auth/check', internalOnly, async (req: Request, res: Response) => {
   const { user, password } = req.query as Record<string, string>
   if (!user || !password) { res.status(400).json({ result: 'error' }); return }
   const dbUser = await prisma.user.findFirst({ where: { username: user } })
@@ -18,7 +34,7 @@ router.get('/auth/check', async (req: Request, res: Response) => {
   res.json({ result: ok ? 'true' : 'false' })
 })
 
-router.get('/auth/exists', async (req: Request, res: Response) => {
+router.get('/auth/exists', internalOnly, async (req: Request, res: Response) => {
   const { user } = req.query as Record<string, string>
   if (!user) { res.json({ result: 'false' }); return }
   const dbUser = await prisma.user.findFirst({ where: { username: user } })
@@ -26,7 +42,7 @@ router.get('/auth/exists', async (req: Request, res: Response) => {
 })
 
 // ejabberd mod_auth_http expects POST with JSON body
-router.post('/auth', async (req: Request, res: Response) => {
+router.post('/auth', internalOnly, async (req: Request, res: Response) => {
   const { user, host, password } = req.body
   if (!user || !password) { res.status(400).json({ result: 'error' }); return }
   const dbUser = await prisma.user.findFirst({ where: { username: user } })
@@ -35,7 +51,7 @@ router.post('/auth', async (req: Request, res: Response) => {
   res.json({ result: ok })
 })
 
-router.post('/auth/register', async (req: Request, res: Response) => {
+router.post('/auth/register', internalOnly, async (req: Request, res: Response) => {
   // ejabberd calls this when a new XMPP account is created via the client
   // We don't auto-create web accounts from XMPP registration — just confirm existence
   const { user } = req.body

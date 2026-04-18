@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Sidebar from '../components/Sidebar'
@@ -36,7 +36,7 @@ export default function ChatLayout() {
   useActivityHeartbeat(handleTabVisible)
 
   // Global socket listeners (presence + cross-room unread counting)
-  useState(() => {
+  useEffect(() => {
     const socket = getSocket()
 
     socket.on('presence', ({ userId: uid, status }: { userId: string; status: 'online' | 'afk' | 'offline' }) => {
@@ -53,7 +53,7 @@ export default function ChatLayout() {
       socket.off('presence')
       socket.off('message')
     }
-  })
+  }, [activeRoomId, userId])
 
   function selectRoom(id: string) {
     setActiveRoomId(id)

@@ -1,4 +1,4 @@
-import express from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import http from 'http'
 import { Server } from 'socket.io'
 import cookieParser from 'cookie-parser'
@@ -15,6 +15,10 @@ import directsRouter from './routes/directs'
 import { setupPresence } from './services/presence'
 import xmppRouter from './routes/xmpp'
 import { xmppBridge } from './xmpp/bridge'
+
+if (process.env.JWT_SECRET === undefined || process.env.JWT_SECRET === 'supersecretjwtkey_change_in_prod') {
+  console.warn('[WARN] JWT_SECRET is using an insecure default. Set JWT_SECRET in production.')
+}
 
 const app = express()
 const server = http.createServer(app)
@@ -55,6 +59,12 @@ xmppBridge.setIo(io)
 if (process.env.XMPP_ENABLED !== 'false') {
   setTimeout(() => xmppBridge.connect(), 5000) // give ejabberd time to start
 }
+
+// Global error handler — prevents stack traces leaking in 500 responses
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err)
+  res.status(500).json({ error: 'Internal server error' })
+})
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)

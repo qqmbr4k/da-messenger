@@ -107,7 +107,12 @@ router.post('/login', async (req: Request, res: Response) => {
       expiresAt: sessionExpiry(),
     },
   })
-  res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 3600 * 1000 })
+  res.cookie('token', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 30 * 24 * 3600 * 1000,
+  })
   res.json({ id: user.id, email: user.email, username: user.username })
 })
 

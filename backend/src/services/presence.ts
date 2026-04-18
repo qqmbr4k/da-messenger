@@ -74,11 +74,12 @@ export function setupPresence(io: Server) {
       }
     })
 
-    // Periodic AFK check
+    // Periodic AFK check — compare against last-broadcast status so transitions fire
+    let lastBroadcastStatus: PresenceStatus = 'online'
     const afkTimer = setInterval(async () => {
-      const prevStatus = computeUserStatus(tabs)
       const nowStatus = computeUserStatus(tabs)
-      if (prevStatus !== nowStatus) {
+      if (nowStatus !== lastBroadcastStatus) {
+        lastBroadcastStatus = nowStatus
         await broadcastPresence(io, userId, nowStatus)
       }
     }, 15_000)
@@ -92,11 +93,6 @@ export function setupPresence(io: Server) {
 
     socket.on('leave_room', (roomId: string) => {
       socket.leave(`room:${roomId}`)
-    })
-
-    // New message relay
-    socket.on('message', async (data: { roomId: string; message: object }) => {
-      io.to(`room:${data.roomId}`).emit('message', data.message)
     })
 
     // Typing indicator
