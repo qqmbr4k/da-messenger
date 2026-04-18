@@ -43,21 +43,32 @@ export default function MembersPanel({ roomId }: { roomId: string }) {
   const isAdmin = adminIds.has(userId!)
 
   return (
-    <div className="w-52 bg-gray-900 border-l border-gray-700 overflow-y-auto shrink-0 relative">
-      <div className="p-3">
-        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Members ({room.members.length})</p>
+    <div className="flex-1 overflow-y-auto bg-[#2b2d31] relative">
+      <div className="p-4">
+        <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-3">
+          Members — {room.members.length}
+        </p>
         <div className="space-y-0.5">
           {room.members.map(m => (
             <button
               key={m.userId}
               onClick={() => setSelectedUser(m.userId === selectedUser ? null : m.userId)}
-              className={`flex items-center gap-2 text-sm w-full text-left px-2 py-1.5 rounded transition-colors ${m.userId === selectedUser ? 'bg-gray-700' : 'hover:bg-gray-800'}`}
+              className={`flex items-center gap-3 text-sm w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                m.userId === selectedUser ? 'bg-[#404249] text-white' : 'text-[#dce0e8] hover:bg-[#383a40]'
+              }`}
             >
-              <PresenceDot userId={m.userId} />
-              <span className="truncate flex-1">{m.user.username}</span>
-              {m.userId === room.ownerId && <span className="text-yellow-500 text-xs shrink-0" title="Owner">👑</span>}
+              <div className="relative shrink-0">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-xs font-bold text-white">
+                  {m.user.username[0].toUpperCase()}
+                </div>
+                <PresenceDot userId={m.userId} className="absolute -bottom-0.5 -right-0.5" />
+              </div>
+              <span className="truncate flex-1 font-medium">{m.user.username}</span>
+              {m.userId === room.ownerId && (
+                <span title="Owner" className="text-yellow-400 text-xs shrink-0">👑</span>
+              )}
               {adminIds.has(m.userId) && m.userId !== room.ownerId && (
-                <span className="text-blue-400 text-xs font-bold shrink-0" title="Admin">A</span>
+                <span title="Admin" className="text-[#5865f2] text-[11px] font-bold shrink-0 border border-[#5865f2]/40 rounded px-1">MOD</span>
               )}
             </button>
           ))}
@@ -112,43 +123,39 @@ function UserPopover({ userId, roomId, isAdmin, isOwner, onClose }: {
   if (!user) return null
 
   return (
-    <div className="absolute left-0 right-0 mx-2 bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-xl z-10 text-sm">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center font-bold">
+    <div className="absolute left-4 right-4 bg-[#111214] border border-[#3f4248] rounded-xl p-4 shadow-2xl z-10 text-sm">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-lg font-bold text-white">
             {user.username[0].toUpperCase()}
           </div>
           <div>
-            <p className="font-semibold">{user.username}</p>
-            <p className={`text-xs ${statusColors[user.status] ?? 'text-gray-500'}`}>{user.status}</p>
+            <p className="font-bold text-white">{user.username}</p>
+            <p className={`text-xs mt-0.5 ${statusColors[user.status] ?? 'text-[#6b6f78]'}`}>{user.status}</p>
           </div>
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white">×</button>
+        <button onClick={onClose} className="text-[#6b6f78] hover:text-white text-xl leading-none">×</button>
       </div>
 
-      <div className="space-y-1.5 mt-3">
+      <div className="space-y-1.5">
         {!user.isFriend && !user.isBanned && !user.hasPendingRequest && (
           <button
             onClick={() => addFriend.mutate()}
-            className="w-full text-left text-blue-400 hover:text-blue-300 text-xs py-1"
+            className="w-full text-left bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
           >
             + Add Friend
           </button>
         )}
-        {user.hasPendingRequest && (
-          <p className="text-xs text-gray-500">Friend request pending</p>
-        )}
-        {user.isFriend && (
-          <p className="text-xs text-green-500">Already friends</p>
-        )}
+        {user.hasPendingRequest && <p className="text-xs text-[#6b6f78]">Friend request pending</p>}
+        {user.isFriend && <p className="text-xs text-[#23a55a]">✓ Friends</p>}
         {msg && <p className="text-xs text-yellow-400">{msg}</p>}
 
         {(isAdmin || isOwner) && (
           <button
             onClick={() => banFromRoom.mutate()}
-            className="w-full text-left text-red-400 hover:text-red-300 text-xs py-1"
+            className="w-full text-left text-red-400 hover:text-red-300 text-xs py-1 transition-colors"
           >
-            Ban from room
+            🚫 Ban from room
           </button>
         )}
       </div>

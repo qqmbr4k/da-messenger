@@ -21,6 +21,7 @@ model User {
   roomBansIssued   RoomBan[]        @relation("BannedBy")
   adminRoles       RoomAdmin[]
   sentMessages     Message[]
+  reactions        Reaction[]
   sentRequests     FriendRequest[]  @relation("RequesterUser")
   receivedRequests FriendRequest[]  @relation("RecipientUser")
   friendsA         Friendship[]     @relation("FriendA")
@@ -140,6 +141,7 @@ model Message {
   replyTo     Message?    @relation("MessageReplies", fields: [replyToId], references: [id])
   replies     Message[]   @relation("MessageReplies")
   attachments Attachment[]
+  reactions   Reaction[]
 
   @@index([roomId, seq])
 }
@@ -200,6 +202,19 @@ model Friendship {
   userB User @relation("FriendB", fields: [userBId], references: [id], onDelete: Cascade)
 
   @@unique([userAId, userBId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
 }
 
 model UserBan {

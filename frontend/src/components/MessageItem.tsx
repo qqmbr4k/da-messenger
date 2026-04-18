@@ -2,21 +2,93 @@ import { useState } from 'react'
 import { format } from 'date-fns'
 import api from '../lib/api'
 import { useAuthStore } from '../store/auth'
-import { Message } from '../lib/types'
+import { Message, Reaction } from '../lib/types'
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉']
+
+const AVATAR_GRADIENTS = [
+  'from-blue-500 to-indigo-600',
+  'from-emerald-500 to-teal-600',
+  'from-orange-500 to-red-500',
+  'from-pink-500 to-rose-600',
+  'from-violet-500 to-purple-600',
+  'from-cyan-500 to-blue-500',
+  'from-yellow-500 to-orange-500',
+  'from-teal-500 to-green-600',
+]
 
 interface Props {
   message: Message
   roomId: string
   isAdmin?: boolean
+  isGrouped?: boolean
   onReply: () => void
   onDeleted: (id: string) => void
   onEdited: (msg: Message) => void
+  onReactionUpdate: (messageId: string, reactions: Reaction[]) => void
 }
 
-export default function MessageItem({ message: msg, roomId, isAdmin, onReply, onDeleted, onEdited }: Props) {
+function renderMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  const segments = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g)
+  let key = 0
+  for (const seg of segments) {
+    if (seg.startsWith('```') && seg.endsWith('```')) {
+      const code = seg.slice(3, -3).replace(/^\n/, '')
+      parts.push(
+        <pre key={key++} className="bg-[#0d1117] border border-[#30363d] rounded-md p-3 my-1.5 overflow-x-auto text-[#e6edf3] font-mono text-xs leading-relaxed">
+          <code>{code}</code>
+        </pre>
+      )
+    } else if (seg.startsWith('`') && seg.endsWith('`') && seg.length > 2) {
+      parts.push(
+        <code key={key++} className="bg-[#383a40] text-[#e8912d] rounded px-1.5 py-0.5 font-mono text-[13px]">
+          {seg.slice(1, -1)}
+        </code>
+      )
+    } else {
+      const inlineParts = seg.split(/(\*\*[^*\n]+\*\*|__[^_\n]+__|_[^_\n]+_|\*[^*\n]+\*|~~[^~\n]+~~)/g)
+      for (const chunk of inlineParts) {
+        if ((chunk.startsWith('**') && chunk.endsWith('**')) || (chunk.startsWith('__') && chunk.endsWith('__'))) {
+          parts.push(<strong key={key++} className="font-semibold text-white">{chunk.slice(2, -2)}</strong>)
+        } else if ((chunk.startsWith('_') && chunk.endsWith('_')) || (chunk.startsWith('*') && chunk.endsWith('*'))) {
+          parts.push(<em key={key++}>{chunk.slice(1, -1)}</em>)
+        } else if (chunk.startsWith('~~') && chunk.endsWith('~~')) {
+          parts.push(<s key={key++} className="opacity-60">{chunk.slice(2, -2)}</s>)
+        } else {
+          parts.push(<span key={key++}>{chunk}</span>)
+        }
+      }
+    }
+  }
+  return parts
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function groupReactions(reactions: Reaction[]) {
+  const map = new Map<string, { count: number; users: string[]; userIds: string[] }>()
+  for (const r of reactions) {
+    if (!map.has(r.emoji)) map.set(r.emoji, { count: 0, users: [], userIds: [] })
+    const g = map.get(r.emoji)!
+    g.count++
+    g.users.push(r.user.username)
+    g.userIds.push(r.userId)
+  }
+  return Array.from(map.entries()).map(([emoji, g]) => ({ emoji, ...g }))
+}
+
+export default function MessageItem({
+  message: msg, roomId, isAdmin, isGrouped, onReply, onDeleted, onEdited, onReactionUpdate,
+}: Props) {
   const userId = useAuthStore(s => s.user?.id)
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(msg.content)
+  const [showReactionPicker, setShowReactionPicker] = useState(false)
 
   const isOwn = msg.author.id === userId
   const canDelete = isOwn || isAdmin
@@ -33,87 +105,184 @@ export default function MessageItem({ message: msg, roomId, isAdmin, onReply, on
     setEditing(false)
   }
 
-  function formatBytes(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  async function handleReaction(emoji: string) {
+    setShowReactionPicker(false)
+    const { data } = await api.post(`/rooms/${roomId}/messages/${msg.id}/reactions`, { emoji })
+    onReactionUpdate(msg.id, data.reactions)
   }
 
-  return (
-    <div className="group flex gap-2 hover:bg-gray-800/40 rounded px-2 py-1">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 select-none">
-        {msg.author.username[0].toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="font-semibold text-sm text-white">{msg.author.username}</span>
-          <span className="text-xs text-gray-500">{format(new Date(msg.createdAt), 'HH:mm')}</span>
-          {msg.editedAt && <span className="text-xs text-gray-600 italic">edited</span>}
-        </div>
+  const reactions = msg.reactions ?? []
+  const reactionGroups = groupReactions(reactions)
+  const timestamp = format(new Date(msg.createdAt), 'HH:mm')
+  const fullTimestamp = format(new Date(msg.createdAt), 'PPpp')
+  const colorIdx = msg.author.username.charCodeAt(0) % AVATAR_GRADIENTS.length
 
-        {msg.replyTo && !msg.replyTo.deletedAt && (
-          <div className="border-l-2 border-blue-700 pl-2 text-sm text-gray-400 mb-1 bg-gray-800/50 rounded-r py-0.5">
-            <span className="font-semibold text-blue-400">{msg.replyTo.author.username}:</span>{' '}
-            {msg.replyTo.content.slice(0, 100)}
+  return (
+    <div className="group relative flex gap-3 px-4 py-0.5 hover:bg-white/[0.03] rounded-lg mx-1 transition-colors">
+      {/* Left column: avatar or time gutter */}
+      <div className="w-10 shrink-0 flex flex-col items-center pt-1">
+        {isGrouped ? (
+          <span className="text-[11px] text-[#4f5258] opacity-0 group-hover:opacity-100 transition-opacity w-10 text-center select-none">
+            {timestamp}
+          </span>
+        ) : (
+          <div
+            className={`w-10 h-10 rounded-xl bg-gradient-to-br ${AVATAR_GRADIENTS[colorIdx]} flex items-center justify-center text-[15px] font-bold select-none shadow-sm`}
+          >
+            {msg.author.username[0].toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      {/* Message body */}
+      <div className="flex-1 min-w-0 py-0.5">
+        {!isGrouped && (
+          <div className="flex items-baseline gap-2 mb-0.5">
+            <span className="font-bold text-[15px] text-white leading-tight">{msg.author.username}</span>
+            <span title={fullTimestamp} className="text-[12px] text-[#6b6f78] cursor-default">
+              {timestamp}
+            </span>
+            {msg.editedAt && <span className="text-[11px] text-[#6b6f78] italic">(edited)</span>}
           </div>
         )}
 
+        {/* Reply quote */}
+        {msg.replyTo && !msg.replyTo.deletedAt && (
+          <div className="flex gap-2 items-start mb-1.5">
+            <div className="w-0.5 bg-[#4f5460] rounded-full self-stretch shrink-0 mt-1" />
+            <div className="text-[13px] text-[#949ba4] leading-snug min-w-0">
+              <span className="font-semibold text-[#c8cdd5] mr-1.5">{msg.replyTo.author.username}</span>
+              <span className="truncate">{msg.replyTo.content.slice(0, 120)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Editing */}
         {editing ? (
-          <div className="flex gap-2 mt-1">
+          <div className="mt-1">
             <textarea
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
-              className="flex-1 bg-gray-700 rounded px-2 py-1 text-sm resize-none outline-none focus:ring-1 focus:ring-blue-500"
-              rows={2}
+              className="w-full bg-[#383a40] border border-[#565b66] rounded-lg px-3 py-2 text-[15px] resize-none outline-none focus:border-[#5865f2] text-[#dce0e8] transition-colors"
+              rows={3}
               autoFocus
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit() }
                 if (e.key === 'Escape') setEditing(false)
               }}
             />
-            <div className="flex flex-col gap-1">
-              <button onClick={handleEdit} className="text-xs text-green-400 hover:text-green-300 px-1">Save</button>
-              <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-300 px-1">Cancel</button>
+            <div className="flex gap-2 mt-1.5 text-[13px]">
+              <button onClick={handleEdit} className="text-green-400 hover:text-green-300 font-semibold">Save</button>
+              <span className="text-[#4f5258]">·</span>
+              <button onClick={() => setEditing(false)} className="text-[#949ba4] hover:text-white">Cancel</button>
+              <span className="text-[#4f5258] text-xs self-center">Esc to cancel</span>
             </div>
           </div>
         ) : (
-          <p className="text-sm whitespace-pre-wrap break-words text-gray-200">{msg.content}</p>
+          <div className="text-[15px] text-[#dce0e8] whitespace-pre-wrap break-words leading-[1.6]">
+            {renderMarkdown(msg.content)}
+          </div>
         )}
 
+        {/* Attachments */}
         {msg.attachments.map(att => (
-          <div key={att.id} className="mt-1.5 border border-gray-700 bg-gray-800/60 rounded-lg p-2 text-sm max-w-sm">
+          <div key={att.id} className="mt-2 max-w-md">
             {att.mimeType.startsWith('image/') ? (
-              <a href={`/api/rooms/${roomId}/files/${att.id}`} target="_blank" rel="noreferrer">
+              <a href={`/api/rooms/${roomId}/files/${att.id}`} target="_blank" rel="noreferrer" className="block">
                 <img
                   src={`/api/rooms/${roomId}/files/${att.id}`}
                   alt={att.originalName}
-                  className="max-w-full max-h-64 rounded object-contain"
+                  className="max-w-full max-h-80 rounded-xl border border-[#3f4248] cursor-zoom-in object-contain"
                 />
               </a>
             ) : (
-              <a
-                href={`/api/rooms/${roomId}/files/${att.id}`}
-                className="flex items-center gap-2 text-blue-400 hover:text-blue-300"
-              >
-                <span className="text-lg">📎</span>
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{att.originalName}</p>
-                  <p className="text-gray-500 text-xs">{formatBytes(att.size)}</p>
+              <div className="flex items-center gap-3 bg-[#2b2d31] border border-[#3f4248] rounded-xl p-3">
+                <div className="w-10 h-10 bg-[#5865f2] rounded-lg flex items-center justify-center shrink-0 text-xl">
+                  📄
                 </div>
-              </a>
+                <div className="min-w-0 flex-1">
+                  <a
+                    href={`/api/rooms/${roomId}/files/${att.id}`}
+                    className="text-[#00aff4] hover:underline text-sm font-semibold block truncate"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {att.originalName}
+                  </a>
+                  <p className="text-[#6b6f78] text-xs mt-0.5">{formatBytes(att.size)}</p>
+                </div>
+                <a
+                  href={`/api/rooms/${roomId}/files/${att.id}`}
+                  download={att.originalName}
+                  className="text-xs text-[#949ba4] hover:text-white border border-[#3f4248] hover:border-[#5865f2] rounded-lg px-2.5 py-1.5 transition-colors shrink-0"
+                  title="Download"
+                >
+                  ↓
+                </a>
+              </div>
             )}
-            {att.comment && <p className="text-gray-400 text-xs mt-1">{att.comment}</p>}
+            {att.comment && <p className="text-[#949ba4] text-xs mt-1 italic">{att.comment}</p>}
           </div>
         ))}
+
+        {/* Reaction chips */}
+        {(reactionGroups.length > 0 || showReactionPicker) && (
+          <div className="flex flex-wrap gap-1 mt-2 items-center">
+            {reactionGroups.map(g => {
+              const reacted = g.userIds.includes(userId ?? '')
+              return (
+                <button
+                  key={g.emoji}
+                  onClick={() => handleReaction(g.emoji)}
+                  title={g.users.join(', ')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-sm border transition-all ${
+                    reacted
+                      ? 'bg-[#5865f2]/20 border-[#5865f2]/60 text-white'
+                      : 'bg-[#2b2d31] border-[#3f4248] text-[#949ba4] hover:border-[#5865f2]/40 hover:text-white'
+                  }`}
+                >
+                  {g.emoji} <span className="text-xs font-medium ml-0.5">{g.count}</span>
+                </button>
+              )
+            })}
+            {showReactionPicker && (
+              <div className="flex gap-0.5 bg-[#2b2d31] border border-[#3f4248] rounded-full px-2 py-1 shadow-xl">
+                {QUICK_REACTIONS.map(e => (
+                  <button key={e} onClick={() => handleReaction(e)} className="text-lg hover:scale-125 transition-transform px-0.5">
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="hidden group-hover:flex items-start gap-0.5 shrink-0 pt-1">
-        <button onClick={onReply} title="Reply" className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">↩</button>
+      {/* Floating hover toolbar */}
+      <div className="absolute right-3 -top-4 hidden group-hover:flex items-center bg-[#2b2d31] border border-[#3f4248] rounded-lg shadow-xl px-1 py-1 z-20 gap-0.5">
+        {QUICK_REACTIONS.slice(0, 3).map(e => (
+          <button
+            key={e}
+            onClick={() => handleReaction(e)}
+            className="text-base hover:scale-125 transition-transform w-8 h-7 flex items-center justify-center rounded hover:bg-[#3f4248]"
+          >
+            {e}
+          </button>
+        ))}
+        <button
+          onClick={() => setShowReactionPicker(v => !v)}
+          title="Add reaction"
+          className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-sm"
+        >
+          😊
+        </button>
+        <div className="w-px h-4 bg-[#3f4248] mx-0.5" />
+        <button onClick={onReply} title="Reply" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-base">↩</button>
         {canEdit && (
-          <button onClick={() => setEditing(true)} title="Edit" className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">✎</button>
+          <button onClick={() => setEditing(true)} title="Edit" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-base">✎</button>
         )}
         {canDelete && (
-          <button onClick={handleDelete} title="Delete" className="text-red-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">🗑</button>
+          <button onClick={handleDelete} title="Delete" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-red-400 rounded hover:bg-[#3f4248] text-base">🗑</button>
         )}
       </div>
     </div>

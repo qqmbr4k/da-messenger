@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Routes, Route, useNavigate } from 'react-router-dom'
-import TopBar from '../components/TopBar'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import RoomCatalog from '../components/RoomCatalog'
@@ -26,17 +25,13 @@ export default function ChatLayout() {
 
   useDocumentTitle()
 
-  // Called when tab wakes from hibernation — re-join rooms to get fresh seq
   const handleTabVisible = useCallback(() => {
     const socket = getSocket()
-    // Re-emit join_room for the active room so server sends us room_seq
-    // and we can detect any gap that occurred while hibernated
     if (activeRoomId) socket.emit('join_room', activeRoomId)
   }, [activeRoomId])
 
   useActivityHeartbeat(handleTabVisible)
 
-  // Global socket listeners (presence + cross-room unread counting)
   useEffect(() => {
     const socket = getSocket()
 
@@ -56,45 +51,50 @@ export default function ChatLayout() {
     }
   }, [activeRoomId, userId])
 
-  // Navigate to chat view after activeRoomId is committed to state
   useEffect(() => {
     if (activeRoomId) navigate('/')
   }, [activeRoomId])
 
   function selectRoom(id: string) {
     setActiveRoomId(id)
-    markRead(id, 0) // clear badge; ChatWindow will update to actual seq
+    markRead(id, 0)
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      <TopBar />
+    <div className="flex h-screen bg-[#313338] overflow-hidden">
       <NotificationToast />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} />
-        <main className="flex-1 overflow-hidden">
-          <Routes>
-            <Route path="/" element={activeRoomId
-              ? <ChatWindow roomId={activeRoomId} onRoomDeleted={() => setActiveRoomId(null)} />
-              : <WelcomeScreen />
-            } />
-            <Route path="/rooms" element={<RoomCatalog onJoin={selectRoom} />} />
-            <Route path="/contacts" element={<ContactsPanel onOpenDm={selectRoom} />} />
-            <Route path="/sessions" element={<SessionsPanel />} />
-            <Route path="/profile" element={<ProfilePanel />} />
-            <Route path="/xmpp" element={<XmppAdminPanel />} />
-          </Routes>
-        </main>
-      </div>
+      <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} />
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <Routes>
+          <Route path="/" element={activeRoomId
+            ? <ChatWindow roomId={activeRoomId} onRoomDeleted={() => setActiveRoomId(null)} />
+            : <WelcomeScreen onBrowse={() => navigate('/rooms')} />
+          } />
+          <Route path="/rooms" element={<RoomCatalog onJoin={selectRoom} />} />
+          <Route path="/contacts" element={<ContactsPanel onOpenDm={selectRoom} />} />
+          <Route path="/sessions" element={<SessionsPanel />} />
+          <Route path="/profile" element={<ProfilePanel />} />
+          <Route path="/xmpp" element={<XmppAdminPanel />} />
+        </Routes>
+      </main>
     </div>
   )
 }
 
-function WelcomeScreen() {
+function WelcomeScreen({ onBrowse }: { onBrowse: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
-      <img src="/logo.png" alt="DAMessenger" className="w-24 h-24 opacity-30" />
-      <p className="text-lg">Select a room or contact to start chatting</p>
+    <div className="flex flex-col items-center justify-center h-full text-center px-8 bg-[#313338]">
+      <img src="/logo.png" alt="DAMessenger" className="w-20 h-20 opacity-20 mb-6" />
+      <h2 className="text-2xl font-bold text-white mb-2">Welcome to DAMessenger</h2>
+      <p className="text-[#949ba4] text-base mb-8 max-w-sm">
+        Select a channel from the sidebar to start chatting, or browse available rooms.
+      </p>
+      <button
+        onClick={onBrowse}
+        className="bg-[#5865f2] hover:bg-[#4752c4] text-white font-semibold px-6 py-2.5 rounded-lg transition-colors"
+      >
+        Browse Channels
+      </button>
     </div>
   )
 }

@@ -46,8 +46,8 @@ export default function NotificationToast() {
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs pointer-events-auto animate-fade-in
-            ${t.type === 'error' ? 'bg-red-700' : t.type === 'success' ? 'bg-green-700' : 'bg-gray-700 border border-gray-600'}`}
+          className={`px-4 py-3 rounded-xl shadow-2xl text-sm max-w-xs pointer-events-auto border
+            ${t.type === 'error' ? 'bg-[#2d1111] border-red-800 text-red-300' : t.type === 'success' ? 'bg-[#112d1b] border-green-800 text-green-300' : 'bg-[#2b2d31] border-[#3f4248] text-[#dce0e8]'}`}
         >
           {t.message}
         </div>

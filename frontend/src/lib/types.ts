@@ -7,6 +7,13 @@ export interface Attachment {
   comment: string
 }
 
+export interface Reaction {
+  id: string
+  emoji: string
+  userId: string
+  user: { username: string }
+}
+
 export interface Message {
   id: string
   seq: number | null
@@ -18,4 +25,5 @@ export interface Message {
   author: { id: string; username: string }
   replyTo: { id: string; content: string; deletedAt: string | null; author: { id: string; username: string } } | null
   attachments: Attachment[]
+  reactions: Reaction[]
 }

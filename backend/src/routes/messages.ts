@@ -27,6 +27,9 @@ const MESSAGE_SELECT = {
   attachments: {
     select: { id: true, filename: true, originalName: true, mimeType: true, size: true, comment: true },
   },
+  reactions: {
+    select: { id: true, emoji: true, userId: true, user: { select: { username: true } } },
+  },
 }
 
 async function assertRoomAccess(roomId: string, userId: string) {
@@ -148,6 +151,36 @@ router.delete('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, r
   await prisma.message.update({ where: { id: req.params.messageId }, data: { deletedAt: new Date() } })
   req.io?.to(`room:${roomId}`).emit('message_deleted', { id: req.params.messageId, roomId })
   res.json({ ok: true })
+})
+
+// POST toggle emoji reaction on a message
+router.post('/:messageId/reactions', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+  const { roomId, messageId } = req.params
+  if (!(await assertRoomAccess(roomId, req.userId!))) {
+    res.status(403).json({ error: 'Access denied' }); return
+  }
+  const { emoji } = req.body
+  if (!emoji || typeof emoji !== 'string' || emoji.length > 10) {
+    res.status(400).json({ error: 'emoji required' }); return
+  }
+
+  const existing = await prisma.reaction.findUnique({
+    where: { messageId_userId_emoji: { messageId, userId: req.userId!, emoji } },
+  })
+
+  if (existing) {
+    await prisma.reaction.delete({ where: { id: existing.id } })
+  } else {
+    await prisma.reaction.create({ data: { messageId, userId: req.userId!, emoji } })
+  }
+
+  const reactions = await prisma.reaction.findMany({
+    where: { messageId },
+    select: { id: true, emoji: true, userId: true, user: { select: { username: true } } },
+  })
+
+  req.io?.to(`room:${roomId}`).emit('reaction_updated', { messageId, reactions, roomId })
+  res.json({ reactions })
 })
 
 // GET room's current max seq (lets clients know if they're behind)
