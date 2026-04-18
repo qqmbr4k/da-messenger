@@ -10,6 +10,8 @@ import MessageInput from './MessageInput'
 import MembersPanel from './MembersPanel'
 import ManageRoomModal from './ManageRoomModal'
 
+type Tab = 'chat' | 'files' | 'members'
+
 interface Room {
   id: string
   name: string
@@ -24,11 +26,64 @@ interface Props {
   onRoomDeleted: () => void
 }
 
+interface Attachment {
+  id: string
+  filename: string
+  originalName: string
+  mimeType: string
+  size: number
+  comment: string
+  createdAt: string
+  message: { id: string; author: { id: string; username: string } }
+}
+
+function FilesTab({ roomId }: { roomId: string }) {
+  const { data: files = [], isLoading } = useQuery<Attachment[]>({
+    queryKey: ['room-files', roomId],
+    queryFn: () => api.get(`/rooms/${roomId}/files`).then(r => r.data),
+  })
+
+  function formatSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  if (isLoading) return <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">Loading...</div>
+  if (files.length === 0) return <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">No files uploaded yet</div>
+
+  return (
+    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      {files.map(f => (
+        <div key={f.id} className="bg-gray-800 rounded p-3 flex items-center gap-3">
+          <div className="text-2xl shrink-0">
+            {f.mimeType.startsWith('image/') ? '🖼️' : f.mimeType.includes('pdf') ? '📄' : '📎'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <a
+              href={`/api/rooms/${roomId}/files/${f.id}`}
+              className="text-blue-400 hover:text-blue-300 text-sm font-medium truncate block"
+              download={f.originalName}
+            >
+              {f.originalName}
+            </a>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {formatSize(f.size)} · {f.message.author.username} · {new Date(f.createdAt).toLocaleDateString()}
+            </div>
+            {f.comment && <div className="text-xs text-gray-400 mt-0.5 italic">{f.comment}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [tab, setTab] = useState<Tab>('chat')
   const [showManage, setShowManage] = useState(false)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
 
@@ -229,21 +284,24 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const isOwner = room?.ownerId === userId
   const isAdmin = room?.admins?.some(a => a.userId === userId) ?? false
 
+  const isDirect = room?.type === 'DIRECT'
+  const tabs: Tab[] = isDirect ? ['chat', 'files'] : ['chat', 'files', 'members']
+
   return (
-    <div className="flex h-full">
-      <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Header */}
-        <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between shrink-0 min-h-[48px]">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="bg-gray-800 border-b border-gray-700 px-4 shrink-0">
+        <div className="flex items-center justify-between pt-2 pb-0 min-h-[40px]">
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-semibold truncate">
-              {room?.type === 'DIRECT' ? '💬' : '#'}{' '}
-              {room?.type === 'DIRECT' ? room.description : room?.name}
+              {isDirect ? '💬' : '#'}{' '}
+              {isDirect ? room?.description : room?.name}
             </span>
-            {room?.description && room.type !== 'DIRECT' && (
+            {room?.description && !isDirect && (
               <span className="text-gray-400 text-sm hidden md:block truncate">{room.description}</span>
             )}
           </div>
-          {room?.type !== 'DIRECT' && (
+          {!isDirect && (
             <button
               onClick={() => setShowManage(true)}
               className="text-xs text-gray-400 hover:text-gray-200 border border-gray-600 rounded px-2 py-1 shrink-0 ml-2"
@@ -252,46 +310,67 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             </button>
           )}
         </div>
-
-        {/* Messages */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          {loadingMore && <div className="text-center text-xs text-gray-500 py-2">Loading older messages...</div>}
-          {!hasMore && messages.length > 0 && (
-            <div className="text-center text-xs text-gray-600 py-3">— Beginning of conversation —</div>
-          )}
-          {messages.map(msg => (
-            <MessageItem
-              key={msg.id}
-              message={msg}
-              roomId={roomId}
-              isAdmin={isAdmin}
-              onReply={() => setReplyTo(msg)}
-              onDeleted={id => setMessages(prev => prev.filter(m => m.id !== id))}
-              onEdited={updated => setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))}
-            />
+        {/* Tabs */}
+        <div className="flex gap-1 mt-1">
+          {tabs.map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1.5 text-sm capitalize rounded-t transition-colors ${
+                tab === t
+                  ? 'bg-gray-700 text-white border-b-2 border-blue-500'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {t}
+            </button>
           ))}
-          {typingUsers.size > 0 && (
-            <div className="text-xs text-gray-500 px-4 py-1 italic">
-              {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
-            </div>
-          )}
-          <div ref={bottomRef} />
         </div>
-
-        {replyTo && (
-          <div className="bg-gray-700 border-t border-gray-600 px-4 py-1.5 flex items-center justify-between text-sm shrink-0">
-            <span className="truncate">
-              Replying to <b>{replyTo.author.username}</b>:{' '}
-              <span className="text-gray-300">{replyTo.content.slice(0, 80)}</span>
-            </span>
-            <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-white ml-2 shrink-0">×</button>
-          </div>
-        )}
-
-        <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
       </div>
 
-      {room?.type !== 'DIRECT' && <MembersPanel roomId={roomId} />}
+      {/* Tab content */}
+      {tab === 'chat' && (
+        <>
+          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+            {loadingMore && <div className="text-center text-xs text-gray-500 py-2">Loading older messages...</div>}
+            {!hasMore && messages.length > 0 && (
+              <div className="text-center text-xs text-gray-600 py-3">— Beginning of conversation —</div>
+            )}
+            {messages.map(msg => (
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                roomId={roomId}
+                isAdmin={isAdmin}
+                onReply={() => setReplyTo(msg)}
+                onDeleted={id => setMessages(prev => prev.filter(m => m.id !== id))}
+                onEdited={updated => setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))}
+              />
+            ))}
+            {typingUsers.size > 0 && (
+              <div className="text-xs text-gray-500 px-4 py-1 italic">
+                {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {replyTo && (
+            <div className="bg-gray-700 border-t border-gray-600 px-4 py-1.5 flex items-center justify-between text-sm shrink-0">
+              <span className="truncate">
+                Replying to <b>{replyTo.author.username}</b>:{' '}
+                <span className="text-gray-300">{replyTo.content.slice(0, 80)}</span>
+              </span>
+              <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-white ml-2 shrink-0">×</button>
+            </div>
+          )}
+
+          <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
+        </>
+      )}
+
+      {tab === 'files' && <FilesTab roomId={roomId} />}
+      {tab === 'members' && !isDirect && <MembersPanel roomId={roomId} />}
 
       {showManage && room && (
         <ManageRoomModal

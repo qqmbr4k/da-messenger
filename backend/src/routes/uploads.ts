@@ -74,6 +74,25 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
   res.status(201).json(attachment)
 })
 
+// List all attachments in this room
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
+  const { roomId } = req.params
+  const member = await prisma.roomMember.findUnique({
+    where: { userId_roomId: { userId: req.userId!, roomId } },
+  })
+  if (!member) { res.status(403).json({ error: 'Access denied' }); return }
+
+  const attachments = await prisma.attachment.findMany({
+    where: { message: { roomId } },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, filename: true, originalName: true, mimeType: true, size: true, comment: true, createdAt: true,
+      message: { select: { id: true, author: { select: { id: true, username: true } } } },
+    },
+  })
+  res.json(attachments)
+})
+
 // Download file
 router.get('/:attachmentId', requireAuth, async (req: AuthRequest, res: Response) => {
   const attachment = await prisma.attachment.findUnique({
