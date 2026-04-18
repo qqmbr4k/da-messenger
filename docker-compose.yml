@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chat
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ejabberd:
+    image: ghcr.io/processone/ejabberd:latest
+    environment:
+      ERLANG_NODE: ejabberd@ejabberd
+    volumes:
+      - ./ejabberd/ejabberd.yml:/opt/ejabberd/conf/ejabberd.yml:ro
+      - ejabberd_data:/opt/ejabberd/database
+    ports:
+      - "5222:5222"   # XMPP client-to-server
+      - "5269:5269"   # XMPP server-to-server (federation)
+      - "5275:5275"   # External component port (bridge)
+      - "5280:5280"   # ejabberd admin HTTP API
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    # Lets ejabberd-a find ejabberd-b by its XMPP domain for S2S federation
+    extra_hosts:
+      - "xmpp-b.localhost:172.28.0.11"
+    healthcheck:
+      test: ["CMD", "ejabberdctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chat
+      JWT_SECRET: supersecretjwtkey_change_in_prod
+      PORT: 4000
+      UPLOAD_DIR: /uploads
+      FRONTEND_URL: http://localhost:3000
+      XMPP_ENABLED: "true"
+      XMPP_COMPONENT_DOMAIN: chat.xmpp.localhost
+      XMPP_COMPONENT_SECRET: bridgesecret
+      EJABBERD_HOST: ejabberd
+      EJABBERD_COMPONENT_PORT: "5275"
+      EJABBERD_API_URL: http://ejabberd:5280
+    volumes:
+      - uploads:/uploads
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  # Second ejabberd instance for federation testing (separate XMPP domain)
+  ejabberd-b:
+    image: ghcr.io/processone/ejabberd:latest
+    profiles:
+      - federation
+    environment:
+      ERLANG_NODE: ejabberd@ejabberd-b
+    volumes:
+      - ./ejabberd/ejabberd-b.yml:/opt/ejabberd/conf/ejabberd.yml:ro
+      - ejabberd_b_data:/opt/ejabberd/database
+    ports:
+      - "5223:5222"   # XMPP c2s on different host port
+      - "5270:5269"   # federation
+      - "5281:5280"   # admin HTTP
+    networks:
+      default:
+        ipv4_address: 172.28.0.11
+    # Lets ejabberd-b find ejabberd-a by its XMPP domain for S2S federation
+    extra_hosts:
+      - "xmpp.localhost:172.28.0.10"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+  uploads:
+  ejabberd_data:
+  ejabberd_b_data:
