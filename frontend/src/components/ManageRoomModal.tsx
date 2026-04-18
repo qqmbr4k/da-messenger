@@ -147,11 +147,19 @@ function BannedTab({ room }: { room: Room }) {
 function InvitationsTab({ room }: { room: Room }) {
   const [username, setUsername] = useState('')
   const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
 
   async function invite() {
-    await api.post(`/rooms/${room.id}/invitations`, { username })
-    setMsg('Invited!')
-    setUsername('')
+    if (!username.trim()) return
+    setError('')
+    setMsg('')
+    try {
+      await api.post(`/rooms/${room.id}/invitations`, { username: username.trim() })
+      setMsg('Invited!')
+      setUsername('')
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'Failed to send invitation')
+    }
   }
 
   return (
@@ -161,12 +169,14 @@ function InvitationsTab({ room }: { room: Room }) {
         <input
           value={username}
           onChange={e => setUsername(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && invite()}
           placeholder="Username"
           className="bg-gray-700 rounded px-3 py-1 text-sm flex-1 outline-none"
         />
         <button onClick={invite} className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Send invite</button>
       </div>
       {msg && <p className="text-green-400 text-sm">{msg}</p>}
+      {error && <p className="text-red-400 text-sm">{error}</p>}
     </div>
   )
 }

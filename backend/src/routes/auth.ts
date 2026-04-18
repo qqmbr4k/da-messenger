@@ -68,7 +68,7 @@ router.post('/register', async (req: Request, res: Response) => {
   try {
     const hashed = await argon2.hash(password)
     const user = await prisma.user.create({
-      data: { email: email.toLowerCase(), username, password: hashed },
+      data: { email: email.toLowerCase(), username: username.toLowerCase(), password: hashed },
       select: { id: true, email: true, username: true, createdAt: true },
     })
     // Sync to ejabberd (non-fatal if ejabberd not running)

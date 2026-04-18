@@ -321,7 +321,7 @@ router.post('/:id/invitations', requireAuth, async (req: AuthRequest, res: Respo
     res.status(403).json({ error: 'Not a member' })
     return
   }
-  const target = await prisma.user.findUnique({ where: { username } })
+  const target = await prisma.user.findFirst({ where: { username: { equals: username, mode: 'insensitive' } } })
   if (!target) {
     res.status(404).json({ error: 'User not found' })
     return

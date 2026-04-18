@@ -39,6 +39,9 @@ export default function Sidebar({ activeRoomId, onSelectRoom }: Props) {
       qc.invalidateQueries({ queryKey: ['my-rooms'] })
       onSelectRoom(room.id)
     },
+    onError: (err: any) => {
+      console.error('[openDm sidebar]', err?.response?.data || err?.message || err)
+    },
   })
 
   const q = search.toLowerCase()

@@ -53,7 +53,7 @@ router.post('/requests', requireAuth, async (req: AuthRequest, res: Response) =>
     res.status(400).json({ error: 'username required' })
     return
   }
-  const target = await prisma.user.findUnique({ where: { username } })
+  const target = await prisma.user.findFirst({ where: { username: { equals: username, mode: 'insensitive' } } })
   if (!target) {
     res.status(404).json({ error: 'User not found' })
     return

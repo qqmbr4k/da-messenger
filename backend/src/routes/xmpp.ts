@@ -28,7 +28,7 @@ function internalOnly(req: Request, res: Response, next: NextFunction) {
 router.get('/auth/check', internalOnly, async (req: Request, res: Response) => {
   const { user, password } = req.query as Record<string, string>
   if (!user || !password) { res.status(400).json({ result: 'error' }); return }
-  const dbUser = await prisma.user.findFirst({ where: { username: user } })
+  const dbUser = await prisma.user.findFirst({ where: { username: { equals: user, mode: 'insensitive' } } })
   if (!dbUser) { res.json({ result: 'false' }); return }
   const ok = await argon2.verify(dbUser.password, password)
   res.json({ result: ok ? 'true' : 'false' })
@@ -37,7 +37,7 @@ router.get('/auth/check', internalOnly, async (req: Request, res: Response) => {
 router.get('/auth/exists', internalOnly, async (req: Request, res: Response) => {
   const { user } = req.query as Record<string, string>
   if (!user) { res.json({ result: 'false' }); return }
-  const dbUser = await prisma.user.findFirst({ where: { username: user } })
+  const dbUser = await prisma.user.findFirst({ where: { username: { equals: user, mode: 'insensitive' } } })
   res.json({ result: dbUser ? 'true' : 'false' })
 })
 
@@ -45,7 +45,7 @@ router.get('/auth/exists', internalOnly, async (req: Request, res: Response) => 
 router.post('/auth', internalOnly, async (req: Request, res: Response) => {
   const { user, host, password } = req.body
   if (!user || !password) { res.status(400).json({ result: 'error' }); return }
-  const dbUser = await prisma.user.findFirst({ where: { username: user } })
+  const dbUser = await prisma.user.findFirst({ where: { username: { equals: user, mode: 'insensitive' } } })
   if (!dbUser) { res.json({ result: false }); return }
   const ok = await argon2.verify(dbUser.password, password)
   res.json({ result: ok })
@@ -55,7 +55,7 @@ router.post('/auth/register', internalOnly, async (req: Request, res: Response) 
   // ejabberd calls this when a new XMPP account is created via the client
   // We don't auto-create web accounts from XMPP registration — just confirm existence
   const { user } = req.body
-  const dbUser = await prisma.user.findFirst({ where: { username: user } })
+  const dbUser = await prisma.user.findFirst({ where: { username: { equals: user, mode: 'insensitive' } } })
   res.json({ result: !!dbUser })
 })
 

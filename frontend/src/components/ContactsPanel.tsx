@@ -58,11 +58,19 @@ export default function ContactsPanel({ onOpenDm }: Props) {
     qc.invalidateQueries({ queryKey: ['friends'] })
   }
 
+  const [dmError, setDmError] = useState('')
   const openDm = useMutation({
     mutationFn: (userId: string) => api.post('/directs/open', { userId }).then(r => r.data),
     onSuccess: (room) => {
+      console.log('[DM success] room=', room)
+      setDmError('')
       qc.invalidateQueries({ queryKey: ['my-rooms'] })
       onOpenDm(room.id)
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to open DM'
+      setDmError(msg)
+      console.error('[openDm]', err)
     },
   })
 
@@ -110,12 +118,13 @@ export default function ContactsPanel({ onOpenDm }: Props) {
 
       <section>
         <h2 className="font-semibold mb-3">Friends ({friends.length})</h2>
+        {dmError && <p className="text-red-400 text-sm mb-2">{dmError}</p>}
         <div className="space-y-1">
           {friends.map(f => (
             <div key={f.id} className="flex items-center gap-3 bg-gray-800 rounded p-2">
               <PresenceDot userId={f.id} />
               <span className="flex-1 text-sm">{f.username}</span>
-              <button onClick={() => openDm.mutate(f.id)} className="text-xs text-blue-400 hover:underline">Message</button>
+              <button onClick={() => { console.log('[DM click] userId=', f.id); openDm.mutate(f.id) }} className="text-xs text-blue-400 hover:underline">Message</button>
               <button onClick={() => removeFriend(f.id)} className="text-xs text-red-400 hover:underline">Remove</button>
             </div>
           ))}

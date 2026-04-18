@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
@@ -22,6 +22,7 @@ export default function ChatLayout() {
   const setStatus = usePresenceStore(s => s.setStatus)
   const { increment, markRead } = useUnreadStore()
   const userId = useAuthStore(s => s.user?.id)
+  const navigate = useNavigate()
 
   useDocumentTitle()
 
@@ -54,6 +55,11 @@ export default function ChatLayout() {
       socket.off('message')
     }
   }, [activeRoomId, userId])
+
+  // Navigate to chat view after activeRoomId is committed to state
+  useEffect(() => {
+    if (activeRoomId) navigate('/')
+  }, [activeRoomId])
 
   function selectRoom(id: string) {
     setActiveRoomId(id)
