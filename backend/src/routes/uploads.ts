@@ -16,17 +16,7 @@ const storage = multer.diskStorage({
   },
 })
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const isImage = file.mimetype.startsWith('image/')
-    const maxSize = isImage ? 3 * 1024 * 1024 : 20 * 1024 * 1024
-    // multer doesn't have size at filter time; enforce in route
-    cb(null, true)
-    void maxSize
-  },
-})
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } })
 
 const router = Router({ mergeParams: true })
 
@@ -38,20 +28,20 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
       return
     }
     if (err) { next(err); return }
+    // Images have a tighter 3MB cap; check after multer writes the file to disk.
+    // (Multer's MIME type is only known mid-stream, so pre-disk rejection would
+    //  require a custom storage engine — not worth it here.)
+    if (req.file?.mimetype.startsWith('image/') && req.file.size > 3 * 1024 * 1024) {
+      fs.unlinkSync(req.file.path)
+      res.status(413).json({ error: 'Max size: 3MB for images' })
+      return
+    }
     next()
   })
 }, async (req: AuthRequest, res: Response) => {
   const { roomId } = req.params
   if (!req.file) {
     res.status(400).json({ error: 'file required' })
-    return
-  }
-
-  const isImage = req.file.mimetype.startsWith('image/')
-  const maxBytes = isImage ? 3 * 1024 * 1024 : 20 * 1024 * 1024
-  if (req.file.size > maxBytes) {
-    fs.unlinkSync(req.file.path)
-    res.status(413).json({ error: `Max size: ${isImage ? '3MB for images' : '20MB for files'}` })
     return
   }
 

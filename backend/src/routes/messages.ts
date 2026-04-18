@@ -63,10 +63,13 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   const { beforeSeq, afterSeq, limit = '50' } = req.query
   const take = Math.min(Number(limit), 200)
 
+  const isInt = (v: unknown) => /^\d+$/.test(String(v))
   let seqFilter: object = {}
   if (afterSeq !== undefined) {
+    if (!isInt(afterSeq)) { res.status(400).json({ error: 'afterSeq must be a non-negative integer' }); return }
     seqFilter = { seq: { gt: BigInt(String(afterSeq)) } }
   } else if (beforeSeq !== undefined) {
+    if (!isInt(beforeSeq)) { res.status(400).json({ error: 'beforeSeq must be a non-negative integer' }); return }
     seqFilter = { seq: { lt: BigInt(String(beforeSeq)) } }
   }
 

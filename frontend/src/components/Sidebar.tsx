@@ -4,6 +4,7 @@ import api from '../lib/api'
 import PresenceDot from './PresenceDot'
 import CreateRoomModal from './CreateRoomModal'
 import { useUnreadStore } from '../store/unread'
+import { useAuthStore } from '../store/auth'
 import PendingInvitations from './PendingInvitations'
 
 interface Room { id: string; name: string; type: string; description: string }
@@ -20,6 +21,7 @@ export default function Sidebar({ activeRoomId, onSelectRoom }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [search, setSearch] = useState('')
   const counts = useUnreadStore(s => s.counts)
+  const myId = useAuthStore(s => s.user?.id)
 
   const { data: rooms = [] } = useQuery<Room[]>({
     queryKey: ['my-rooms'],
@@ -49,9 +51,9 @@ export default function Sidebar({ activeRoomId, onSelectRoom }: Props) {
   const privateRooms = rooms.filter(r => r.type === 'PRIVATE' && (!q || r.name.toLowerCase().includes(q)))
   const dmRooms = rooms.filter(r => r.type === 'DIRECT')
 
-  // Find DM room for a friend
   function getDmRoom(friendId: string) {
-    return dmRooms.find(r => r.name.includes(friendId))
+    const name = `dm:${[myId, friendId].sort().join(':')}`
+    return dmRooms.find(r => r.name === name)
   }
 
   return (

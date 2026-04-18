@@ -76,6 +76,18 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
 })
 
 // Get single room
+// Get my pending invitations — must be defined before /:id to avoid param capture
+router.get('/invitations/pending', requireAuth, async (req: AuthRequest, res: Response) => {
+  const invs = await prisma.roomInvitation.findMany({
+    where: { userId: req.userId },
+    include: {
+      room: { select: { id: true, name: true, description: true } },
+      invitedBy: { select: { id: true, username: true } },
+    },
+  })
+  res.json(invs)
+})
+
 router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({
     where: { id: req.params.id },
@@ -368,18 +380,6 @@ router.post('/:id/invitations/accept', requireAuth, async (req: AuthRequest, res
     }),
   ])
   res.json({ ok: true })
-})
-
-// Get my pending invitations
-router.get('/invitations/pending', requireAuth, async (req: AuthRequest, res: Response) => {
-  const invs = await prisma.roomInvitation.findMany({
-    where: { userId: req.userId },
-    include: {
-      room: { select: { id: true, name: true, description: true } },
-      invitedBy: { select: { id: true, username: true } },
-    },
-  })
-  res.json(invs)
 })
 
 export default router

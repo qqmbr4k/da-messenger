@@ -40,26 +40,16 @@ router.post('/open', requireAuth, async (req: AuthRequest, res: Response) => {
     return
   }
 
-  // Find existing DM room
-  const existing = await prisma.room.findFirst({
-    where: {
-      type: 'DIRECT',
-      members: { every: { userId: { in: [req.userId!, userId] } } },
-      AND: [
-        { members: { some: { userId: req.userId } } },
-        { members: { some: { userId } } },
-      ],
-    },
-    include: { members: true },
-  })
-  if (existing && existing.members.length === 2) {
+  // DM room names are deterministic: dm:{sorted UUIDs}
+  const roomName = `dm:${[req.userId!, userId].sort().join(':')}`
+  const existing = await prisma.room.findUnique({ where: { name: roomName } })
+  if (existing) {
     res.json(existing)
     return
   }
 
   const otherUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
   const me = await prisma.user.findUnique({ where: { id: req.userId }, select: { username: true } })
-  const roomName = `dm:${[req.userId, userId].sort().join(':')}`
 
   const room = await prisma.$transaction(async tx => {
     const r = await tx.room.create({

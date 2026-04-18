@@ -208,9 +208,12 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     res.json({ message: 'If that email exists, a reset token has been generated.' })
     return
   }
+  // Clean up any existing (possibly expired) reset tokens for this user
+  await prisma.session.deleteMany({
+    where: { userId: user.id, token: { startsWith: 'reset:' } },
+  })
   const resetToken = uuidv4()
   const expires = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
-  // Reuse Session table with a special token prefix
   await prisma.session.create({
     data: {
       userId: user.id,

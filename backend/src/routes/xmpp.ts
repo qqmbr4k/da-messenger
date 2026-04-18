@@ -12,9 +12,11 @@ function internalOnly(req: Request, res: Response, next: NextFunction) {
   const raw = req.ip || ''
   const ip = raw.startsWith('::ffff:') ? raw.slice(7) : raw
   // Allow loopback and RFC-1918 ranges used by Docker
+  // 172.16.0.0/12 = 172.16.x.x–172.31.x.x only (not the full 172.x.x.x/8)
   const allowed =
     ip === '127.0.0.1' || ip === '::1' ||
-    ip.startsWith('172.') || ip.startsWith('10.') || ip.startsWith('192.168.')
+    ip.startsWith('10.') || ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
   if (!allowed) {
     res.status(403).json({ error: 'Forbidden' })
     return
