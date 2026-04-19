@@ -8,10 +8,12 @@ import SessionsPanel from '../components/SessionsPanel'
 import ProfilePanel from '../components/ProfilePanel'
 import XmppAdminPanel from '../components/XmppAdminPanel'
 import NotificationToast from '../components/NotificationToast'
+import CallModal from '../components/CallModal'
 import { getSocket } from '../lib/socket'
 import { usePresenceStore } from '../store/presence'
 import { useUnreadStore } from '../store/unread'
 import { useAuthStore } from '../store/auth'
+import { useCallStore } from '../store/call'
 import { useQueryClient } from '@tanstack/react-query'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useActivityHeartbeat } from '../hooks/useActivityHeartbeat'
@@ -22,6 +24,8 @@ export default function ChatLayout() {
   const setStatus = usePresenceStore(s => s.setStatus)
   const { increment, markRead } = useUnreadStore()
   const userId = useAuthStore(s => s.user?.id)
+  const setCall = useCallStore(s => s.set)
+  const callStatus = useCallStore(s => s.status)
   const navigate = useNavigate()
   const location = useLocation()
   const qc = useQueryClient()
@@ -113,6 +117,20 @@ export default function ChatLayout() {
     }
   }, [activeRoomId, userId, location.pathname])
 
+  // Isolated effect so incoming call offer handling doesn't trigger full handler re-registration
+  useEffect(() => {
+    const socket = getSocket()
+    function onCallOffer({ from, signal, isVideo, fromUsername }: { from: string; signal: RTCSessionDescriptionInit; isVideo: boolean; fromUsername?: string }) {
+      if (callStatus !== 'idle') {
+        socket.emit('call_busy', { to: from })
+        return
+      }
+      setCall({ status: 'receiving', remoteUserId: from, remoteUsername: fromUsername ?? from, isVideo, incomingSignal: signal })
+    }
+    socket.on('call_offer', onCallOffer)
+    return () => { socket.off('call_offer', onCallOffer) }
+  }, [callStatus, setCall])
+
   function selectRoom(id: string) {
     setActiveRoomId(id)
     markRead(id, 0)
@@ -122,6 +140,7 @@ export default function ChatLayout() {
   return (
     <div className="flex h-screen bg-[#313338] overflow-hidden">
       <NotificationToast />
+      <CallModal />
       <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} />
       <main className="flex-1 overflow-hidden flex flex-col">
         <Routes>

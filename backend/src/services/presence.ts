@@ -110,6 +110,54 @@ export function setupPresence(io: Server) {
       socket.to(`room:${data.roomId}`).emit('typing', { userId, username: user?.username, roomId: data.roomId })
     })
 
+    // ── WebRTC signaling relay ──────────────────────────────────────────────
+    // All events are relayed only to the specific target user. The server
+    // never inspects or stores SDP/ICE content.
+
+    socket.on('call_offer', async (data: { to: string; signal: unknown; isVideo: boolean }) => {
+      if (typeof data?.to !== 'string') return
+      // Only relay if a direct room exists between the two users
+      const sharedDm = await prisma.room.findFirst({
+        where: {
+          type: 'DIRECT',
+          members: { some: { userId } },
+          AND: [{ members: { some: { userId: data.to } } }],
+        },
+        select: { id: true },
+      })
+      if (!sharedDm) return
+      const caller = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
+      io.to(`user:${data.to}`).emit('call_offer', {
+        from: userId, signal: data.signal, isVideo: !!data.isVideo,
+        fromUsername: caller?.username ?? userId,
+      })
+    })
+
+    socket.on('call_answer', (data: { to: string; signal: unknown }) => {
+      if (typeof data?.to !== 'string') return
+      io.to(`user:${data.to}`).emit('call_answer', { from: userId, signal: data.signal })
+    })
+
+    socket.on('call_ice', (data: { to: string; candidate: unknown }) => {
+      if (typeof data?.to !== 'string') return
+      io.to(`user:${data.to}`).emit('call_ice', { from: userId, candidate: data.candidate })
+    })
+
+    socket.on('call_end', (data: { to: string }) => {
+      if (typeof data?.to !== 'string') return
+      io.to(`user:${data.to}`).emit('call_end', { from: userId })
+    })
+
+    socket.on('call_reject', (data: { to: string }) => {
+      if (typeof data?.to !== 'string') return
+      io.to(`user:${data.to}`).emit('call_reject', { from: userId })
+    })
+
+    socket.on('call_busy', (data: { to: string }) => {
+      if (typeof data?.to !== 'string') return
+      io.to(`user:${data.to}`).emit('call_busy', { from: userId })
+    })
+
     socket.on('disconnect', async () => {
       clearInterval(afkTimer)
       tabs.delete(socket.id)
