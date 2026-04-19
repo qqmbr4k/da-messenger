@@ -126,22 +126,25 @@ model RoomSeq {
 }
 
 model Message {
-  id          String    @id @default(uuid())
-  roomId      String
-  authorId    String
-  content     String    @db.VarChar(3072)
-  seq         BigInt?
-  replyToId   String?
-  editedAt    DateTime?
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id              String    @id @default(uuid())
+  roomId          String
+  authorId        String
+  content         String    @db.VarChar(3072)
+  seq             BigInt?
+  replyToId       String?
+  forwardedFromId String?
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
 
-  room        Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  author      User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  replyTo     Message?    @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies     Message[]   @relation("MessageReplies")
-  attachments Attachment[]
-  reactions   Reaction[]
+  room          Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  author        User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  replyTo       Message?    @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies       Message[]   @relation("MessageReplies")
+  forwardedFrom Message?    @relation("MessageForwards", fields: [forwardedFromId], references: [id])
+  forwards      Message[]   @relation("MessageForwards")
+  attachments   Attachment[]
+  reactions     Reaction[]
 
   @@index([roomId, seq])
 }

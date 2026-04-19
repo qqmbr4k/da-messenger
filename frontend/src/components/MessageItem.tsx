@@ -23,12 +23,15 @@ interface Props {
   isAdmin?: boolean
   isGrouped?: boolean
   onReply: () => void
+  onForward: () => void
   onDeleted: (id: string) => void
   onEdited: (msg: Message) => void
   onReactionUpdate: (messageId: string, reactions: Reaction[]) => void
+  onScrollToReply?: (replyToId: string) => void
+  highlighted?: boolean
 }
 
-function renderMarkdown(text: string): React.ReactNode[] {
+function renderMarkdown(text: string, currentUsername?: string | null): React.ReactNode[] {
   const parts: React.ReactNode[] = []
   const segments = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g)
   let key = 0
@@ -47,7 +50,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
         </code>
       )
     } else {
-      const inlineParts = seg.split(/(\*\*[^*\n]+\*\*|__[^_\n]+__|_[^_\n]+_|\*[^*\n]+\*|~~[^~\n]+~~)/g)
+      const inlineParts = seg.split(/(\*\*[^*\n]+\*\*|__[^_\n]+__|_[^_\n]+_|\*[^*\n]+\*|~~[^~\n]+~~|@[a-zA-Z0-9_]+)/g)
       for (const chunk of inlineParts) {
         if ((chunk.startsWith('**') && chunk.endsWith('**')) || (chunk.startsWith('__') && chunk.endsWith('__'))) {
           parts.push(<strong key={key++} className="font-semibold text-white">{chunk.slice(2, -2)}</strong>)
@@ -55,6 +58,21 @@ function renderMarkdown(text: string): React.ReactNode[] {
           parts.push(<em key={key++}>{chunk.slice(1, -1)}</em>)
         } else if (chunk.startsWith('~~') && chunk.endsWith('~~')) {
           parts.push(<s key={key++} className="opacity-60">{chunk.slice(2, -2)}</s>)
+        } else if (/^@[a-zA-Z0-9_]+$/.test(chunk)) {
+          const username = chunk.slice(1)
+          const isSelf = currentUsername && username.toLowerCase() === currentUsername.toLowerCase()
+          parts.push(
+            <span
+              key={key++}
+              className={`inline rounded px-1 py-0.5 text-[14px] font-semibold cursor-default ${
+                isSelf
+                  ? 'bg-[#5865f2]/30 text-[#8fa3ff]'
+                  : 'bg-[#3f4248] text-[#00aff4]'
+              }`}
+            >
+              {chunk}
+            </span>
+          )
         } else {
           parts.push(<span key={key++}>{chunk}</span>)
         }
@@ -83,9 +101,10 @@ function groupReactions(reactions: Reaction[]) {
 }
 
 export default function MessageItem({
-  message: msg, roomId, isAdmin, isGrouped, onReply, onDeleted, onEdited, onReactionUpdate,
+  message: msg, roomId, isAdmin, isGrouped, onReply, onForward, onDeleted, onEdited, onReactionUpdate, onScrollToReply, highlighted,
 }: Props) {
-  const userId = useAuthStore(s => s.user?.id)
+  const user = useAuthStore(s => s.user)
+  const userId = user?.id
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(msg.content)
   const [showReactionPicker, setShowReactionPicker] = useState(false)
@@ -118,7 +137,7 @@ export default function MessageItem({
   const colorIdx = msg.author.username.charCodeAt(0) % AVATAR_GRADIENTS.length
 
   return (
-    <div className="group relative flex gap-3 px-4 py-0.5 hover:bg-white/[0.03] rounded-lg mx-1 transition-colors">
+    <div data-message-id={msg.id} className={`group relative flex gap-3 px-4 py-0.5 rounded-lg mx-1 transition-colors duration-700 ${highlighted ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}>
       {/* Left column: avatar or time gutter */}
       <div className="w-10 shrink-0 flex flex-col items-center pt-1">
         {isGrouped ? (
@@ -146,9 +165,22 @@ export default function MessageItem({
           </div>
         )}
 
+        {/* Forwarded-from banner */}
+        {msg.forwardedFrom && (
+          <div className="flex items-center gap-1.5 mb-1 text-[12px] text-[#949ba4]">
+            <svg className="w-3.5 h-3.5 text-[#5865f2] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Forwarded from <span className="font-semibold text-[#c8cdd5]">{msg.forwardedFrom.author.username}</span></span>
+          </div>
+        )}
+
         {/* Reply quote */}
         {msg.replyTo && !msg.replyTo.deletedAt && (
-          <div className="flex gap-2 items-start mb-1.5">
+          <div
+            className="flex gap-2 items-start mb-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => onScrollToReply?.(msg.replyTo!.id)}
+          >
             <div className="w-0.5 bg-[#4f5460] rounded-full self-stretch shrink-0 mt-1" />
             <div className="text-[13px] text-[#949ba4] leading-snug min-w-0">
               <span className="font-semibold text-[#c8cdd5] mr-1.5">{msg.replyTo.author.username}</span>
@@ -180,7 +212,7 @@ export default function MessageItem({
           </div>
         ) : (
           <div className="text-[15px] text-[#dce0e8] whitespace-pre-wrap break-words leading-[1.6]">
-            {renderMarkdown(msg.content)}
+            {renderMarkdown(msg.content, user?.username)}
           </div>
         )}
 
@@ -282,6 +314,11 @@ export default function MessageItem({
         <button onClick={onReply} title="Reply" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248]">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+        </button>
+        <button onClick={onForward} title="Forward message" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248]">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </button>
         {canEdit && (

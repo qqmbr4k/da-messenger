@@ -15,12 +15,20 @@ const MESSAGE_SELECT = {
   editedAt: true,
   deletedAt: true,
   replyToId: true,
+  forwardedFromId: true,
   author: { select: { id: true, username: true } },
   replyTo: {
     select: {
       id: true,
       content: true,
       deletedAt: true,
+      author: { select: { id: true, username: true } },
+    },
+  },
+  forwardedFrom: {
+    select: {
+      id: true,
+      content: true,
       author: { select: { id: true, username: true } },
     },
   },
@@ -114,6 +122,29 @@ router.post('/', requireAuth, async (req: AuthRequest & IoRequest, res: Response
 
   const payload = { ...message, seq: Number(message.seq) }
   req.io?.to(`room:${roomId}`).emit('message', { ...payload, roomId })
+
+  // Emit mention notifications to each @mentioned room member
+  const mentionedUsernames = (content.match(/@([a-zA-Z0-9_]+)/g) ?? []).map((m: string) => m.slice(1))
+  if (mentionedUsernames.length > 0 && req.io) {
+    const mentionedUsers = await prisma.user.findMany({
+      where: {
+        username: { in: mentionedUsernames, mode: 'insensitive' },
+        memberships: { some: { roomId } },
+        id: { not: req.userId! },
+      },
+      select: { id: true },
+    })
+    const authorUsername = (message as any).author?.username ?? ''
+    for (const { id: mentionedId } of mentionedUsers) {
+      req.io.to(`user:${mentionedId}`).emit('mentioned', {
+        roomId,
+        messageId: message.id,
+        authorUsername,
+        preview: content.slice(0, 100),
+      })
+    }
+  }
+
   res.status(201).json(payload)
 })
 
@@ -192,6 +223,54 @@ router.post('/:messageId/reactions', requireAuth, async (req: AuthRequest & IoRe
 
   req.io?.to(`room:${roomId}`).emit('reaction_updated', { messageId, reactions, roomId })
   res.json({ reactions })
+})
+
+// POST forward a message to another room (copies content + re-links attachments)
+router.post('/:messageId/forward', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+  const { roomId, messageId } = req.params
+  if (!(await assertRoomAccess(roomId, req.userId!))) {
+    res.status(403).json({ error: 'Access denied' }); return
+  }
+  const { targetRoomId } = req.body
+  if (!targetRoomId || typeof targetRoomId !== 'string') {
+    res.status(400).json({ error: 'targetRoomId required' }); return
+  }
+  if (!(await assertRoomAccess(targetRoomId, req.userId!))) {
+    res.status(403).json({ error: 'Not a member of target room' }); return
+  }
+
+  const original = await prisma.message.findUnique({
+    where: { id: messageId, deletedAt: null },
+    select: {
+      content: true,
+      roomId: true,
+      author: { select: { id: true, username: true } },
+      attachments: { select: { filename: true, originalName: true, mimeType: true, size: true, comment: true } },
+    },
+  })
+  if (!original || original.roomId !== roomId) {
+    res.status(404).json({ error: 'Message not found' }); return
+  }
+
+  const seq = await nextRoomSeq(targetRoomId)
+
+  const newMsg = await prisma.message.create({
+    data: {
+      roomId: targetRoomId,
+      authorId: req.userId!,
+      content: original.content,
+      seq,
+      forwardedFromId: messageId,
+      attachments: original.attachments.length > 0
+        ? { create: original.attachments.map(a => ({ ...a })) }
+        : undefined,
+    },
+    select: MESSAGE_SELECT,
+  })
+
+  const payload = { ...newMsg, seq: Number(newMsg.seq) }
+  req.io?.to(`room:${targetRoomId}`).emit('message', { ...payload, roomId: targetRoomId })
+  res.status(201).json(payload)
 })
 
 // GET room's current max seq (lets clients know if they're behind)

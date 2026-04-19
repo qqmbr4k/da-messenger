@@ -22,8 +22,10 @@ export interface Message {
   editedAt: string | null
   deletedAt: string | null
   replyToId: string | null
+  forwardedFromId: string | null
   author: { id: string; username: string }
   replyTo: { id: string; content: string; deletedAt: string | null; author: { id: string; username: string } } | null
+  forwardedFrom: { id: string; content: string; author: { id: string; username: string } } | null
   attachments: Attachment[]
   reactions: Reaction[]
 }

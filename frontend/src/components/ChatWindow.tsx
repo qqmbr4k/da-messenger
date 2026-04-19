@@ -10,6 +10,7 @@ import MessageItem from './MessageItem'
 import MessageInput from './MessageInput'
 import MembersPanel from './MembersPanel'
 import ManageRoomModal from './ManageRoomModal'
+import ForwardModal from './ForwardModal'
 import { useCallStore } from '../store/call'
 
 type Panel = 'none' | 'files' | 'members'
@@ -139,6 +140,7 @@ function FilesPanel({ roomId }: { roomId: string }) {
 export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [forwardMsg, setForwardMsg] = useState<Message | null>(null)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [panel, setPanel] = useState<Panel>('none')
@@ -147,6 +149,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [unreadDividerSeq, setUnreadDividerSeq] = useState<number | null>(null)
   const [sendError, setSendError] = useState('')
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -437,6 +440,24 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m))
   }
 
+  function scrollToMessage(messageId: string) {
+    const el = scrollRef.current?.querySelector(`[data-message-id="${messageId}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedMsgId(messageId)
+      setTimeout(() => setHighlightedMsgId(null), 1500)
+    } else {
+      setSendError('Original message is not loaded — scroll up to find it')
+      setTimeout(() => setSendError(''), 3000)
+    }
+  }
+
+  async function handleForward(targetRoomId: string) {
+    if (!forwardMsg) return
+    await api.post(`/rooms/${roomId}/messages/${forwardMsg.id}/forward`, { targetRoomId })
+    setForwardMsg(null)
+  }
+
   function togglePanel(p: Panel) {
     setPanel(prev => prev === p ? 'none' : p)
   }
@@ -603,9 +624,12 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
                       isAdmin={isAdmin}
                       isGrouped={grouped}
                       onReply={() => setReplyTo(msg)}
+                      onForward={() => setForwardMsg(msg)}
                       onDeleted={id => setMessages(prev => prev.filter(m => m.id !== id))}
                       onEdited={updated => setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))}
                       onReactionUpdate={handleReactionUpdate}
+                      onScrollToReply={scrollToMessage}
+                      highlighted={highlightedMsgId === msg.id}
                     />
                   )}
                 </div>
@@ -661,13 +685,22 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
           )}
 
           {sendError && <p className="text-red-400 text-xs px-4 pb-1">{sendError}</p>}
-          <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
+          <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} members={room?.members?.map(m => m.user) ?? []} />
         </div>
 
         {/* Side panel */}
         {panel === 'files' && <FilesPanel roomId={roomId} />}
         {panel === 'members' && !isDirect && <MembersPanel roomId={roomId} />}
       </div>
+
+      {forwardMsg && (
+        <ForwardModal
+          message={forwardMsg}
+          currentRoomId={roomId}
+          onClose={() => setForwardMsg(null)}
+          onForward={handleForward}
+        />
+      )}
 
       {showManage && room && (
         <ManageRoomModal

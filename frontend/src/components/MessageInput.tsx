@@ -3,17 +3,30 @@ import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
 
 interface FileEntry { file: File; comment: string }
 
+interface Member { id: string; username: string }
+
 interface Props {
   onSend: (content: string, files: File[], comments: string[]) => Promise<void>
   roomId: string
   onTyping?: () => void
+  members?: Member[]
 }
 
-export default function MessageInput({ onSend, onTyping }: Props) {
+function getMentionRange(text: string, cursorPos: number): { start: number; query: string } | null {
+  const before = text.slice(0, cursorPos)
+  const match = before.match(/@(\w*)$/)
+  if (!match) return null
+  return { start: cursorPos - match[0].length, query: match[1] }
+}
+
+export default function MessageInput({ onSend, onTyping, members = [] }: Props) {
   const [text, setText] = useState('')
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [showEmoji, setShowEmoji] = useState(false)
   const [sending, setSending] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionStart, setMentionStart] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -23,6 +36,24 @@ export default function MessageInput({ onSend, onTyping }: Props) {
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 160) + 'px'
   }, [text])
+
+  const filteredMembers = mentionQuery !== null
+    ? members.filter(m => m.username.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 8)
+    : []
+
+  const insertMention = useCallback((username: string) => {
+    const el = textareaRef.current
+    if (!el) return
+    const cursorPos = el.selectionStart ?? text.length  // capture before setText re-renders
+    const newText = text.slice(0, mentionStart) + `@${username} ` + text.slice(cursorPos)
+    setText(newText)
+    setMentionQuery(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      const pos = mentionStart + username.length + 2
+      el.setSelectionRange(pos, pos)
+    })
+  }, [text, mentionStart])
 
   const handleSend = useCallback(async () => {
     if (!text.trim() && entries.length === 0) return
@@ -40,11 +71,33 @@ export default function MessageInput({ onSend, onTyping }: Props) {
     }
   }, [text, entries, onSend])
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const newText = e.target.value
+    setText(newText)
+    onTyping?.()
+    const pos = e.target.selectionStart ?? newText.length
+    const range = getMentionRange(newText, pos)
+    if (range && members.length > 0) {
+      setMentionQuery(range.query)
+      setMentionStart(range.start)
+      setMentionIndex(0)
+    } else {
+      setMentionQuery(null)
     }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    // Mention dropdown navigation
+    if (mentionQuery !== null && filteredMembers.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % filteredMembers.length); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + filteredMembers.length) % filteredMembers.length); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredMembers[mentionIndex].username); return }
+      if (e.key === 'Escape') { setMentionQuery(null); return }
+    }
+
+    if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); wrapSelection('**') }
+    else if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); wrapSelection('_') }
+    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   function addFiles(newFiles: File[]) {
@@ -80,7 +133,33 @@ export default function MessageInput({ onSend, onTyping }: Props) {
   const canSend = (text.trim().length > 0 || entries.length > 0) && !sending
 
   return (
-    <div className="px-4 pb-4 pt-0 shrink-0 relative" onClick={() => setShowEmoji(false)}>
+    <div className="px-4 pb-4 pt-0 shrink-0 relative" onClick={() => { setShowEmoji(false); setMentionQuery(null) }}>
+      {/* @mention autocomplete dropdown */}
+      {mentionQuery !== null && filteredMembers.length > 0 && (
+        <div
+          className="absolute bottom-full mb-1 left-4 right-4 bg-[#111214] border border-[#3f4248] rounded-lg shadow-2xl overflow-hidden z-50"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[11px] text-[#6b6f78] font-semibold uppercase tracking-wide border-b border-[#1e1f22]">
+            Members matching @{mentionQuery || '…'}
+          </div>
+          {filteredMembers.map((m, i) => (
+            <button
+              key={m.id}
+              onMouseDown={e => { e.preventDefault(); insertMention(m.username) }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                i === mentionIndex ? 'bg-[#5865f2]/20 text-white' : 'text-[#dce0e8] hover:bg-[#3f4248]'
+              }`}
+            >
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                {m.username[0].toUpperCase()}
+              </div>
+              <span className="font-medium">@{m.username}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div
         className="bg-[#383a40] rounded-lg overflow-hidden focus-within:bg-[#40434a] transition-colors"
         onClick={e => e.stopPropagation()}
@@ -117,12 +196,8 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={e => { setText(e.target.value); onTyping?.() }}
-          onKeyDown={e => {
-            if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); wrapSelection('**') }
-            else if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); wrapSelection('_') }
-            else handleKeyDown(e)
-          }}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Message..."
           className="w-full bg-transparent px-4 py-3 text-[15px] text-[#dce0e8] resize-none outline-none placeholder-[#6b6f78] min-h-[44px] leading-relaxed"

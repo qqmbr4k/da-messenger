@@ -33,9 +33,14 @@ export default function NotificationToast() {
       qc.invalidateQueries({ queryKey: ['friend-requests'] })
     })
 
+    socket.on('mentioned', ({ authorUsername, preview }: { roomId: string; messageId: string; authorUsername: string; preview: string }) => {
+      addToast(`@${authorUsername} mentioned you: ${preview.slice(0, 60)}${preview.length > 60 ? '…' : ''}`, 'info')
+    })
+
     return () => {
       socket.off('room_invitation')
       socket.off('friend_request')
+      socket.off('mentioned')
     }
   }, [])
 
