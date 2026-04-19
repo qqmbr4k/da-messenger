@@ -160,7 +160,7 @@ router.post('/:id/leave', requireAuth, async (req: AuthRequest, res: Response) =
     return
   }
   if (room.ownerId === req.userId) {
-    res.status(400).json({ error: 'Owner cannot leave. Delete the room instead.' })
+    res.status(403).json({ error: 'Owner cannot leave. Delete the room instead.' })
     return
   }
   await prisma.roomMember.deleteMany({
@@ -195,7 +195,14 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     res.status(403).json({ error: 'Only the owner can delete this room' })
     return
   }
+  const members = await prisma.roomMember.findMany({ where: { roomId: req.params.id }, select: { userId: true } })
   await prisma.room.delete({ where: { id: req.params.id } })
+  const io = (req as IoRequest).io
+  if (io) {
+    for (const m of members) {
+      io.to(`user:${m.userId}`).emit('removed_from_room', { roomId: req.params.id })
+    }
+  }
   res.json({ ok: true })
 })
 
@@ -310,7 +317,7 @@ router.delete('/:id/admins/:userId', requireAuth, async (req: AuthRequest, res: 
   res.json({ ok: true })
 })
 
-// Remove member — treated as a ban per spec (user cannot rejoin unless unbanned)
+// Kick member — removes from room without adding a ban (user can rejoin via invite)
 router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
@@ -327,11 +334,6 @@ router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res:
   await prisma.$transaction([
     prisma.roomMember.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
     prisma.roomAdmin.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
-    prisma.roomBan.upsert({
-      where: { userId_roomId: { userId: req.params.userId, roomId: req.params.id } },
-      create: { userId: req.params.userId, roomId: req.params.id, bannedById: req.userId! },
-      update: {},
-    }),
   ])
   ;(req as IoRequest).io?.to(`user:${req.params.userId}`).emit('removed_from_room', { roomId: req.params.id })
   res.json({ ok: true })

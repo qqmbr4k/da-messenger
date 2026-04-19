@@ -51,7 +51,7 @@ test.describe('2.5 Messaging', () => {
 
     // Hover the message row (.group) to reveal action buttons
     await hoverMessage(page, `Original ${id}`)
-    await page.locator('button[title="Edit"]').first().click()
+    await page.locator('button[title="Edit message"]').first().click()
 
     // Edit textarea has rows=3; message input has rows=1
     const textarea = page.locator('textarea[rows="3"]').first()
@@ -89,7 +89,7 @@ test.describe('2.5 Messaging', () => {
     await sendMessage(page, `Delete me ${id}`)
 
     await hoverMessage(page, `Delete me ${id}`)
-    await page.locator('button[title="Delete"]').first().click()
+    await page.locator('button[title="Delete message"]').first().click()
     await expect(page.locator(`text=Delete me ${id}`)).toBeHidden({ timeout: 6_000 })
   })
 
@@ -150,11 +150,13 @@ test.describe('2.5 Messaging', () => {
     await page.locator('.group').filter({ hasText: `React to this ${id}` }).last()
       .locator('button').filter({ hasText: '👍' }).first().click()
     // Reaction chip should appear
-    await expect(page.locator('button').filter({ hasText: '👍' }).last()).toBeVisible({ timeout: 5_000 })
-    await expect(page.locator('button').filter({ hasText: '👍' }).last().locator('span')).toBeVisible()
+    // Reaction chip appears — it has a count span inside
+    const reactionChip = page.locator('button').filter({ hasText: /👍.*1/ }).first()
+    await expect(reactionChip).toBeVisible({ timeout: 5_000 })
+    await expect(reactionChip.locator('span')).toBeVisible()
 
     // Toggle off by clicking the reaction chip
-    await page.locator('button').filter({ hasText: /👍.*1/ }).first().click()
+    await reactionChip.click()
     // Count should go to 0 and chip should disappear
     await expect(page.locator('button').filter({ hasText: /👍.*1/ })).toBeHidden({ timeout: 5_000 })
   })
@@ -251,9 +253,9 @@ test.describe('2.5 Messaging', () => {
 
     await sendMessage(page, `Unread msg ${id}`)
 
-    // Unread badge renders with bg-[#f23f42]; look for any child span with that substring
+    // Unread badge renders with bg-[#e01e5a]; look for any child span with that substring
     const roomBtn2 = page2.locator(`button:has-text("unread-${id}")`).first()
-    await expect(roomBtn2.locator('span[class*="f23f42"]')).toBeVisible({ timeout: 10_000 })
+    await expect(roomBtn2.locator('span[class*="e01e5a"], span[class*="red"]')).toBeVisible({ timeout: 10_000 })
 
     // Open the room — badge disappears
     await roomBtn2.click()

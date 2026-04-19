@@ -75,7 +75,7 @@ test.describe('2.6 Attachments', () => {
 
     // Open Files panel (icon button in header)
     await page.locator('button[title="Files"]').first().click()
-    await expect(page.locator(`text=ftab-${id}.txt`)).toBeVisible()
+    await expect(page.locator(`text=ftab-${id}.txt`).first()).toBeVisible({ timeout: 8_000 })
     fs.unlinkSync(filePath)
   })
 
@@ -172,6 +172,47 @@ test.describe('2.6 Attachments', () => {
     await ctx2.close()
   })
 
+  test('image uploaded by sender is shown as preview for receiver in real-time', async ({ page, browser }) => {
+    test.setTimeout(60_000)
+    const id = uid()
+    await register(page, `imgA${id}@test.com`, `imgA${id}`)
+    await createRoom(page, `imgroom-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `imgB${id}@test.com`, `imgB${id}`)
+    await joinRoomFromCatalog(page2, `imgroom-${id}`)
+
+    // Navigate page2 into the room chat
+    await page2.locator(`button:has-text("imgroom-${id}")`).first().click()
+    await expect(page2.locator('textarea[placeholder="Message..."]').first()).toBeVisible({ timeout: 8_000 })
+
+    // Sender (page) uploads a minimal valid PNG
+    const pngPath = path.join(os.tmpdir(), `img-${id}.png`)
+    // 1×1 pixel PNG (base64-encoded known-good minimal PNG)
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    fs.writeFileSync(pngPath, pngBytes)
+
+    const [fc] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button[title="Attach file"]').click(),
+    ])
+    await fc.setFiles(pngPath)
+    await page.locator('textarea[placeholder="Message..."]').first().press('Enter')
+
+    // Sender sees the image preview
+    await expect(page.locator(`img[alt="img-${id}.png"]`).first()).toBeVisible({ timeout: 10_000 })
+
+    // Receiver also sees the image preview (not just an icon/link)
+    await expect(page2.locator(`img[alt="img-${id}.png"]`).first()).toBeVisible({ timeout: 10_000 })
+
+    fs.unlinkSync(pngPath)
+    await ctx2.close()
+  })
+
   test('2.6.4 banned member loses file access (API returns 403)', async ({ page, browser }) => {
     test.setTimeout(60_000)
     const id = uid()
@@ -200,6 +241,8 @@ test.describe('2.6 Attachments', () => {
     const modal = page.locator('[data-testid="manage-room-modal"]')
     await expect(modal.getByText(`faccusr${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
     await modal.getByText(`faccusr${id}`, { exact: true }).locator('..').locator('button:has-text("Ban")').click()
+    // Wait for ban to take effect — member is removed from room
+    await expect(page2.locator(`button:has-text("faccess-${id}")`)).toBeHidden({ timeout: 8_000 })
 
     // Banned user's request for the file should be 403
     const resp = await page2.request.get(href)

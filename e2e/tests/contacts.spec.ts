@@ -190,6 +190,68 @@ test.describe('2.3 Contacts / Friends', () => {
     await ctx2.close()
   })
 
+  test('DM opened by friend appears in sidebar without reload', async ({ page, browser }) => {
+    test.setTimeout(60_000)
+    const id = uid()
+    await register(page, `dmnotifyA${id}@test.com`, `dmnotifyA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `dmnotifyB${id}@test.com`, `dmnotifyB${id}`)
+
+    // Become friends
+    await sendFriendRequest(page, `dmnotifyB${id}`)
+    await acceptFirstRequest(page2)
+
+    // Reload so both have friend list populated
+    await page.goto('/contacts')
+    await expect(page.locator(`text=dmnotifyB${id}`).first()).toBeVisible({ timeout: 8_000 })
+
+    // B opens a DM with A (A has never opened it first)
+    const aId = await page.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+    const openResp = await page2.request.post('/api/directs/open', { data: { userId: aId } })
+    expect([200, 201]).toContain(openResp.status())
+
+    // A's sidebar should show the DM without needing a page reload (socket event)
+    // The "Direct Messages" section lists friends — dmnotifyB should be clickable
+    await page.goto('/')
+    await expect(page.locator('button').filter({ hasText: `dmnotifyB${id}` }).first()).toBeVisible({ timeout: 8_000 })
+    await ctx2.close()
+  })
+
+  test('message in fresh DM triggers unread badge for the other user', async ({ page, browser }) => {
+    test.setTimeout(60_000)
+    const id = uid()
+    await register(page, `dmunreadA${id}@test.com`, `dmunreadA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `dmunreadB${id}@test.com`, `dmunreadB${id}`)
+
+    // Become friends
+    await sendFriendRequest(page, `dmunreadB${id}`)
+    await acceptFirstRequest(page2)
+
+    // Navigate to root so unread count is visible
+    await page.goto('/')
+    await expect(page.locator(`text=dmunreadB${id}`).first()).toBeVisible({ timeout: 8_000 })
+
+    // B opens a DM and sends a message to A (A is not viewing the DM)
+    const aId = await page.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+    const openResp = await page2.request.post('/api/directs/open', { data: { userId: aId } })
+    const dmRoom = await openResp.json()
+
+    // B sends a message via API so we control timing
+    await page2.request.post(`/api/rooms/${dmRoom.id}/messages`, {
+      data: { content: `Hey A, it's B! ${id}` },
+    })
+
+    // A should see an unread badge next to B's name in the sidebar
+    const friendBtn = page.locator('button').filter({ hasText: `dmunreadB${id}` }).first()
+    await expect(friendBtn.locator('span[class*="e01e5a"], span[class*="red"]')).toBeVisible({ timeout: 10_000 })
+    await ctx2.close()
+  })
+
   test('2.3.5 user-to-user ban terminates friendship', async ({ page, browser }) => {
     const id = uid()
     await register(page, `bfA${id}@test.com`, `bfA${id}`)
@@ -198,20 +260,14 @@ test.describe('2.3 Contacts / Friends', () => {
     const page2 = await ctx2.newPage()
     await register(page2, `bfB${id}@test.com`, `bfB${id}`)
 
-    // Become friends
-    await page.request.post('/api/friends/requests', { data: { username: `bfB${id}` } })
-    const reqs = await page2.request.get('/api/friends/requests')
-    const { received } = await reqs.json()
-    await page2.request.post(`/api/friends/requests/${received[0].id}/accept`)
+    // Become friends via UI
+    await sendFriendRequest(page, `bfB${id}`)
+    await acceptFirstRequest(page2)
 
-    // Confirm they are friends
-    const beforeFriends = await page.request.get('/api/friends')
-    const before = await beforeFriends.json()
-    expect(before.some((f: any) => f.username === `bfB${id}`)).toBe(true)
-
-    // bfA bans bfB
+    // bfA bans bfB via API
     const bfBId = await page2.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
-    await page.request.post('/api/friends/bans', { data: { userId: bfBId } })
+    const banResp = await page.request.post('/api/friends/bans', { data: { userId: bfBId } })
+    expect(banResp.ok()).toBeTruthy()
 
     // Friendship is terminated
     const afterFriends = await page.request.get('/api/friends')

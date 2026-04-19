@@ -58,6 +58,12 @@ export default function ChatLayout() {
       }
     }
 
+    function onNewDm({ id }: { id: string }) {
+      qc.invalidateQueries({ queryKey: ['my-rooms'] })
+      // Join the socket room so we receive messages immediately
+      socket.emit('join_room', id)
+    }
+
     function onMessage(msg: Message & { roomId?: string }) {
       const msgRoomId = (msg as any).roomId as string | undefined
       if (!msgRoomId) return
@@ -70,11 +76,13 @@ export default function ChatLayout() {
     socket.on('presence', onPresence)
     socket.on('removed_from_room', onRemovedFromRoom)
     socket.on('message', onMessage)
+    socket.on('new_dm', onNewDm)
 
     return () => {
       socket.off('presence', onPresence)
       socket.off('removed_from_room', onRemovedFromRoom)
       socket.off('message', onMessage)
+      socket.off('new_dm', onNewDm)
     }
   }, [activeRoomId, userId, location.pathname])
 

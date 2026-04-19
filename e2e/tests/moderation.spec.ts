@@ -27,12 +27,12 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
 
     // Admin deletes
     await page.locator(`text=Member msg ${id}`).first().hover()
-    await page.locator('button[title="Delete"]').first().click()
+    await page.locator('button[title="Delete message"]').first().click()
     await expect(page.locator(`text=Member msg ${id}`)).toBeHidden({ timeout: 6_000 })
     await ctx2.close()
   })
 
-  test('2.4.8 removing member is treated as ban — cannot rejoin', async ({ page, browser }) => {
+  test('2.4.8 kicked member is removed but can rejoin a public room', async ({ page, browser }) => {
     const id = uid()
     await register(page, `kickadm${id}@test.com`, `kickadm${id}`)
     await createRoom(page, `kickroom-${id}`)
@@ -42,16 +42,16 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await register(page2, `kicked${id}@test.com`, `kicked${id}`)
     await joinRoomFromCatalog(page2, `kickroom-${id}`)
 
-    // Admin opens modal and bans the member (kick=ban per req 2.4.8)
+    // Admin kicks (not bans) the member
     await openManageModal(page)
     await clickModalTab(page, 'members')
     await expect(page.locator('[data-testid="manage-room-modal"]').getByText(`kicked${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
-    await clickMemberAction(page, `kicked${id}`, 'Ban')
+    await clickMemberAction(page, `kicked${id}`, 'Kick')
 
-    // Banned user no longer sees room
+    // Kicked user no longer sees room in sidebar
     await expect(page2.locator(`button:has-text("kickroom-${id}")`)).toBeHidden({ timeout: 8_000 })
 
-    // Banned user CANNOT rejoin — API returns 403
+    // Kicked user CAN rejoin a public room (no ban was added)
     const roomId = await page.evaluate(async (name: string) => {
       const r = await fetch('/api/rooms?search=' + name)
       const data = await r.json()
@@ -59,7 +59,7 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     }, `kickroom-${id}`)
     expect(roomId).toBeTruthy()
     const joinResp = await page2.request.post(`/api/rooms/${roomId}/join`)
-    expect(joinResp.status()).toBe(403)
+    expect(joinResp.status()).toBe(200)
     await ctx2.close()
   })
 
@@ -172,7 +172,7 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await ctx2.close()
   })
 
-  test('owner row has no Ban button', async ({ page }) => {
+  test('owner row has no Kick or Ban buttons', async ({ page }) => {
     const id = uid()
     await register(page, `own${id}@test.com`, `ownprct${id}`)
     await createRoom(page, `ownprot-${id}`)
@@ -181,7 +181,111 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await expect(page.locator('[data-testid="manage-room-modal"]').getByText(`ownprct${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
     const ownerSpan = page.locator('[data-testid="manage-room-modal"]').getByText(`ownprct${id}`, { exact: true })
     const ownerRow = ownerSpan.locator('..')
+    await expect(ownerRow.locator('button:has-text("Kick")')).toBeHidden()
     await expect(ownerRow.locator('button:has-text("Ban")')).toBeHidden()
+  })
+
+  test('kicked member from private room can rejoin via new invite', async ({ page, browser }) => {
+    test.setTimeout(60_000)
+    const id = uid()
+    await register(page, `kpown${id}@test.com`, `kpown${id}`)
+    await createRoom(page, `kproom-${id}`, '', true)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `kpuser${id}@test.com`, `kpuser${id}`)
+
+    // Owner invites user → user accepts
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    const modal = page.locator('[data-testid="manage-room-modal"]')
+    await modal.locator('input[placeholder*="username" i]').fill(`kpuser${id}`)
+    await modal.locator('button:has-text("Send Invite")').click()
+    await expect(modal.locator('text=/sent|invited/i')).toBeVisible({ timeout: 6_000 })
+    await page.keyboard.press('Escape')
+
+    await page2.reload()
+    await expect(page2.locator('text=Invitations').first()).toBeVisible({ timeout: 8_000 })
+    await page2.locator('button:has-text("Join")').first().click()
+    await expect(page2.locator(`button:has-text("kproom-${id}")`).first()).toBeVisible({ timeout: 8_000 })
+
+    // Owner kicks the user
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    await expect(modal.getByText(`kpuser${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
+    await clickMemberAction(page, `kpuser${id}`, 'Kick')
+    await page.keyboard.press('Escape')
+
+    // User is removed from room
+    await expect(page2.locator(`button:has-text("kproom-${id}")`)).toBeHidden({ timeout: 8_000 })
+
+    // Owner sends a new invite
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    await modal.locator('input[placeholder*="username" i]').fill(`kpuser${id}`)
+    await modal.locator('button:has-text("Send Invite")').click()
+    await expect(modal.locator('text=/sent|invited/i')).toBeVisible({ timeout: 6_000 })
+    await page.keyboard.press('Escape')
+
+    // User can rejoin via the new invite
+    await page2.reload()
+    await expect(page2.locator('text=Invitations').first()).toBeVisible({ timeout: 8_000 })
+    await page2.locator('button:has-text("Join")').first().click()
+    await expect(page2.locator(`button:has-text("kproom-${id}")`).first()).toBeVisible({ timeout: 8_000 })
+    await ctx2.close()
+  })
+
+  test('unban from members tab with "Unban & Send Invite" rejoins private room', async ({ page, browser }) => {
+    test.setTimeout(60_000)
+    const id = uid()
+    await register(page, `ubown${id}@test.com`, `ubown${id}`)
+    await createRoom(page, `ubroom-${id}`, '', true)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `ubuser${id}@test.com`, `ubuser${id}`)
+
+    // Owner invites → user joins
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    const modal = page.locator('[data-testid="manage-room-modal"]')
+    await modal.locator('input[placeholder*="username" i]').fill(`ubuser${id}`)
+    await modal.locator('button:has-text("Send Invite")').click()
+    await expect(modal.locator('text=/sent|invited/i')).toBeVisible({ timeout: 6_000 })
+    await page.keyboard.press('Escape')
+
+    await page2.reload()
+    await expect(page2.locator('text=Invitations').first()).toBeVisible({ timeout: 8_000 })
+    await page2.locator('button:has-text("Join")').first().click()
+    await expect(page2.locator(`button:has-text("ubroom-${id}")`).first()).toBeVisible({ timeout: 8_000 })
+
+    // Owner bans the user
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    await expect(modal.getByText(`ubuser${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
+    await clickMemberAction(page, `ubuser${id}`, 'Ban')
+    await page.keyboard.press('Escape')
+
+    // Banned user lost the room
+    await expect(page2.locator(`button:has-text("ubroom-${id}")`)).toBeHidden({ timeout: 8_000 })
+
+    // Banned user appears in the Banned section of members tab
+    await openManageModal(page)
+    await clickModalTab(page, 'members')
+    await expect(modal.locator(`text=ubuser${id}`).last()).toBeVisible({ timeout: 6_000 })
+
+    // Click Unban → dialog appears → choose Unban & Send Invite
+    const bannedRow = modal.locator('span.line-through').filter({ hasText: `ubuser${id}` })
+    await bannedRow.locator('..').locator('button:has-text("Unban")').click()
+    await expect(page.locator('text=Also send them an invite')).toBeVisible({ timeout: 3_000 })
+    await page.locator('button:has-text("Unban & Send Invite")').click()
+
+    // User receives invite and can rejoin
+    await page2.reload()
+    await expect(page2.locator('text=Invitations').first()).toBeVisible({ timeout: 8_000 })
+    await page2.locator('button:has-text("Join")').first().click()
+    await expect(page2.locator(`button:has-text("ubroom-${id}")`).first()).toBeVisible({ timeout: 8_000 })
+    await ctx2.close()
   })
 
   test('non-admin cannot ban a member (API returns 403)', async ({ page, browser }) => {

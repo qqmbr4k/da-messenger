@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import { useAuthStore } from '../store/auth'
@@ -28,6 +28,12 @@ function inputClass() {
 export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: Props) {
   const [tab, setTab] = useState<Tab>('members')
   const qc = useQueryClient()
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -75,50 +81,184 @@ export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: P
 
 function MembersTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean; onRefresh: () => void }) {
   const userId = useAuthStore(s => s.user?.id)
+  const [invUsername, setInvUsername] = useState('')
+  const [invMsg, setInvMsg] = useState('')
+  const [invErr, setInvErr] = useState('')
+  const [unbanTarget, setUnbanTarget] = useState<{ userId: string; username: string } | null>(null)
+  const [unbanFeedback, setUnbanFeedback] = useState('')
+
   const { data } = useQuery<any>({
     queryKey: ['room', room.id],
     queryFn: () => api.get(`/rooms/${room.id}`).then(r => r.data),
     staleTime: 0,
   })
-  const adminIds = new Set((data?.admins || []).map((a: any) => a.userId))
+  const { data: bans = [], refetch: refetchBans } = useQuery<any[]>({
+    queryKey: ['room-bans', room.id],
+    queryFn: () => api.get(`/rooms/${room.id}/bans`).then(r => r.data),
+    staleTime: 0,
+  })
 
-  async function remove(uid: string) { await api.delete(`/rooms/${room.id}/members/${uid}`); onRefresh() }
+  const adminIds = new Set((data?.admins || []).map((a: any) => a.userId))
+  const isModerator = isOwner || adminIds.has(userId!)
+
+  async function kick(uid: string) { await api.delete(`/rooms/${room.id}/members/${uid}`); onRefresh() }
+  async function ban(uid: string) { await api.post(`/rooms/${room.id}/bans`, { userId: uid }); onRefresh(); refetchBans() }
+  async function unban(uid: string) { await api.delete(`/rooms/${room.id}/bans/${uid}`); refetchBans() }
+  async function sendInvite(username: string): Promise<boolean> {
+    try { await api.post(`/rooms/${room.id}/invitations`, { username }); return true } catch { return false }
+  }
   async function makeAdmin(uid: string) { await api.post(`/rooms/${room.id}/admins`, { userId: uid }); onRefresh() }
 
   const canAct = (memberId: string) =>
     memberId !== room.ownerId && memberId !== userId &&
     (isOwner || (adminIds.has(userId!) && !adminIds.has(memberId)))
 
+  async function doInvite() {
+    const u = invUsername.trim()
+    if (!u) return
+    setInvErr(''); setInvMsg('')
+    try {
+      await api.post(`/rooms/${room.id}/invitations`, { username: u })
+      setInvMsg(`Invitation sent to ${u}!`)
+      setInvUsername('')
+    } catch (e: any) {
+      setInvErr(e.response?.data?.error || 'Failed to send invitation')
+    }
+  }
+
   return (
-    <div className="space-y-1">
-      <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-3">
-        {(data?.members || []).length} Members
-      </p>
-      {(data?.members || []).map((m: any) => (
-        <div key={m.userId} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#2b2d31] transition-colors">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
-            {m.user.username[0].toUpperCase()}
+    <div className="space-y-4">
+      {/* Invite form — private rooms only */}
+      {room.type === 'PRIVATE' && (
+        <div>
+          <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-2">Invite by Username</p>
+          <div className="flex gap-2">
+            <input
+              value={invUsername}
+              onChange={e => setInvUsername(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doInvite()}
+              placeholder="Enter a username..."
+              className={inputClass()}
+            />
+            <button
+              onClick={doInvite}
+              className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors"
+            >
+              Send Invite
+            </button>
           </div>
-          <span className="flex-1 text-sm text-[#dce0e8]">{m.user.username}</span>
-          <span className="text-xs text-[#6b6f78]">
-            {m.userId === room.ownerId ? '👑 Owner' : adminIds.has(m.userId) ? '🛡️ Admin' : 'Member'}
-          </span>
-          <div className="flex gap-1">
-            {isOwner && m.userId !== userId && m.userId !== room.ownerId && !adminIds.has(m.userId) && (
-              <button onClick={() => makeAdmin(m.userId)} className="text-xs text-[#5865f2] hover:underline px-1">+Admin</button>
-            )}
-            {canAct(m.userId) && (
-              <button
-                onClick={() => remove(m.userId)}
-                title="Remove and ban — user cannot rejoin unless unbanned"
-                className="text-xs text-red-400 hover:underline px-1"
-              >
-                Ban
-              </button>
-            )}
+          {invMsg && <p className="text-[#23a55a] text-xs mt-1">{invMsg}</p>}
+          {invErr && <p className="text-red-400 text-xs mt-1">{invErr}</p>}
+        </div>
+      )}
+
+      {/* Members list */}
+      <div className="space-y-1">
+        <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-2">
+          {(data?.members || []).length} Members
+        </p>
+        {(data?.members || []).map((m: any) => (
+          <div key={m.userId} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#2b2d31] transition-colors">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+              {m.user.username[0].toUpperCase()}
+            </div>
+            <span className="flex-1 text-sm text-[#dce0e8]">{m.user.username}</span>
+            <span className="text-xs text-[#6b6f78]">
+              {m.userId === room.ownerId ? '👑 Owner' : adminIds.has(m.userId) ? '🛡️ Admin' : 'Member'}
+            </span>
+            <div className="flex gap-1 shrink-0">
+              {isOwner && m.userId !== userId && m.userId !== room.ownerId && !adminIds.has(m.userId) && (
+                <button onClick={() => makeAdmin(m.userId)} className="text-xs text-[#5865f2] hover:underline px-1">+Admin</button>
+              )}
+              {canAct(m.userId) && (
+                <>
+                  <button
+                    onClick={() => kick(m.userId)}
+                    title="Kick — user can rejoin with a new invite"
+                    className="text-xs text-yellow-400 hover:underline px-1"
+                  >
+                    Kick
+                  </button>
+                  <button
+                    onClick={() => ban(m.userId)}
+                    title="Ban — user cannot rejoin unless unbanned"
+                    className="text-xs text-red-400 hover:underline px-1"
+                  >
+                    Ban
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Banned users — inline at bottom of members tab */}
+      {isModerator && bans.length > 0 && (
+        <div>
+          <div className="border-t border-[#3f4248] pt-3" />
+          <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-2">Banned</p>
+          <div className="space-y-1">
+            {bans.map(b => (
+              <div key={b.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#2b2d31] transition-colors">
+                <div className="w-8 h-8 rounded-full bg-[#383a40] flex items-center justify-center text-xs text-[#949ba4] shrink-0">
+                  {b.user.username[0].toUpperCase()}
+                </div>
+                <span className="flex-1 text-sm text-[#6b6f78] line-through">{b.user.username}</span>
+                <span className="text-xs text-[#4f5258]">by {b.bannedBy.username}</span>
+                <button
+                  onClick={() => { setUnbanTarget({ userId: b.userId, username: b.user.username }); setUnbanFeedback('') }}
+                  className="text-xs text-[#23a55a] hover:underline px-1 shrink-0"
+                >
+                  Unban
+                </button>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {/* Unban dialog */}
+      {unbanTarget && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"
+          onClick={() => setUnbanTarget(null)}
+        >
+          <div
+            className="bg-[#2b2d31] border border-[#3f4248] rounded-xl p-5 shadow-2xl w-80 mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-white font-semibold mb-1">Unban {unbanTarget.username}?</p>
+            <p className="text-[#949ba4] text-sm mb-4">Also send them an invite so they can rejoin?</p>
+            {unbanFeedback && <p className="text-[#23a55a] text-sm mb-3">{unbanFeedback}</p>}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={async () => {
+                  await unban(unbanTarget.userId)
+                  const ok = await sendInvite(unbanTarget.username)
+                  setUnbanFeedback(ok ? `Unbanned and invited ${unbanTarget.username}!` : `Unbanned ${unbanTarget.username}.`)
+                  setTimeout(() => setUnbanTarget(null), 1500)
+                }}
+                className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Unban &amp; Send Invite
+              </button>
+              <button
+                onClick={async () => { await unban(unbanTarget.userId); setUnbanTarget(null) }}
+                className="bg-[#383a40] hover:bg-[#4a4d55] text-[#dce0e8] px-4 py-2 rounded-lg text-sm transition-colors"
+              >
+                Unban Only
+              </button>
+              <button
+                onClick={() => setUnbanTarget(null)}
+                className="text-[#6b6f78] hover:text-white text-sm py-1 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

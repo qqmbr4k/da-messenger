@@ -283,12 +283,22 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       setTimeout(() => setTypingUsers(prev => { const s = new Set(prev); s.delete(username); return s }), 3000)
     }
 
+    function onAttachmentAdded({ messageId, attachment }: { messageId: string; attachment: Attachment }) {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== messageId) return m
+        if (m.attachments?.some(a => a.id === attachment.id)) return m
+        return { ...m, attachments: [...(m.attachments ?? []), attachment] }
+      }))
+      qc.invalidateQueries({ queryKey: ['room-files', roomId] })
+    }
+
     socket.on('room_seq', onRoomSeq)
     socket.on('message', onMessage)
     socket.on('message_edited', onMessageEdited)
     socket.on('message_deleted', onMessageDeleted)
     socket.on('reaction_updated', onReactionUpdated)
     socket.on('typing', onTyping)
+    socket.on('attachment_added', onAttachmentAdded)
 
     return () => {
       socket.off('room_seq', onRoomSeq)
@@ -297,6 +307,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       socket.off('message_deleted', onMessageDeleted)
       socket.off('reaction_updated', onReactionUpdated)
       socket.off('typing', onTyping)
+      socket.off('attachment_added', onAttachmentAdded)
     }
   }, [roomId, userId])
 
@@ -358,10 +369,11 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       form.append('messageId', msg.id)
       if (comments[idx]) form.append('comment', comments[idx])
       const { data: att } = await api.post(`/rooms/${roomId}/files`, form)
-      setMessages(prev => prev.map(m => m.id === msg.id
-        ? { ...m, attachments: [...(m.attachments ?? []), att] }
-        : m
-      ))
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msg.id) return m
+        if (m.attachments?.some(a => a.id === att.id)) return m
+        return { ...m, attachments: [...(m.attachments ?? []), att] }
+      }))
       qc.invalidateQueries({ queryKey: ['room-files', roomId] })
     }
 

@@ -3,10 +3,13 @@ import multer from 'multer'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import { Server } from 'socket.io'
 import { Readable } from 'stream'
 import prisma from '../lib/prisma'
 import s3, { S3_BUCKET } from '../lib/s3'
 import { requireAuth, AuthRequest } from '../middleware/auth'
+
+interface IoRequest extends Request { io?: Server }
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
@@ -98,6 +101,10 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
       comment: comment || '',
     },
   })
+
+  // Notify all room members so they render the attachment without polling
+  ;(req as IoRequest).io?.to(`room:${roomId}`).emit('attachment_added', { messageId, attachment })
+
   res.status(201).json(attachment)
 })
 

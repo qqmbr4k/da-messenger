@@ -1,6 +1,9 @@
-import { Router, Response } from 'express'
+import { Router, Response, Request } from 'express'
+import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
 import { requireAuth, AuthRequest } from '../middleware/auth'
+
+interface IoRequest extends Request { io?: Server }
 
 const router = Router()
 
@@ -63,6 +66,16 @@ router.post('/open', requireAuth, async (req: AuthRequest, res: Response) => {
     })
     return r
   })
+
+  const io = (req as IoRequest).io
+  if (io) {
+    // Subscribe both users' active sockets to the new DM room channel
+    io.in(`user:${req.userId!}`).socketsJoin(`room:${room.id}`)
+    io.in(`user:${userId}`).socketsJoin(`room:${room.id}`)
+    // Notify the other user so their sidebar refreshes immediately
+    io.to(`user:${userId}`).emit('new_dm', { id: room.id, name: room.name, description: room.description, type: room.type })
+  }
+
   res.status(201).json(room)
 })
 
