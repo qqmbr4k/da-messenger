@@ -90,6 +90,7 @@ services:
       UPLOAD_DIR: /uploads
       FRONTEND_URL: http://localhost:3000
       XMPP_ENABLED: "true"
+      XMPP_HOST: xmpp.localhost
       XMPP_COMPONENT_DOMAIN: chat.xmpp.localhost
       XMPP_COMPONENT_SECRET: bridgesecret
       EJABBERD_HOST: ejabberd

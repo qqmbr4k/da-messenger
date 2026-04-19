@@ -685,18 +685,20 @@ export default function ChatWindow({ roomId, onRoomDeleted, initialSeq, initialM
               )
             })}
 
-            {typingUsers.size > 0 && (
-              <div className="flex items-center gap-2 px-4 py-1 text-[13px] text-[#949ba4]">
-                <span className="flex gap-0.5 items-center">
-                  <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </span>
-                <span className="italic">
-                  {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-2 px-4 py-1 text-[13px] text-[#949ba4] min-h-[24px]">
+              {typingUsers.size > 0 && (
+                <>
+                  <span className="flex gap-0.5 items-center">
+                    <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span className="italic">
+                    {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                  </span>
+                </>
+              )}
+            </div>
             <div ref={bottomRef} className="h-4" />
           </div>
 

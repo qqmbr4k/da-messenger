@@ -14,6 +14,7 @@ const COMPONENT_DOMAIN = process.env.XMPP_COMPONENT_DOMAIN || 'chat.xmpp.localho
 const COMPONENT_SECRET = process.env.XMPP_COMPONENT_SECRET || 'bridgesecret'
 const EJABBERD_HOST = process.env.EJABBERD_HOST || 'ejabberd'
 const EJABBERD_PORT = Number(process.env.EJABBERD_COMPONENT_PORT) || 5275
+const XMPP_HOST = process.env.XMPP_HOST || 'xmpp.localhost'
 
 export interface XmppStats {
   connected: boolean
@@ -247,7 +248,7 @@ class XmppBridge extends EventEmitter {
     if (!this.stats.connected) return
     const stanza = [
       `<message from='${opts.fromUsername}@${COMPONENT_DOMAIN}'`,
-      ` to='${opts.toUsername}@xmpp.localhost'`,
+      ` to='${opts.toUsername}@${XMPP_HOST}'`,
       ` type='chat'`,
       ` id='${opts.messageId}'>`,
       `<body>${escapeXml(opts.body)}</body>`,

@@ -1,5 +1,7 @@
 # Architecture
 
+> See also: [FEATURES.md](FEATURES.md) — complete feature reference · [README.md](../README.md) — quick start
+
 ## Overview
 
 DAMessenger is a single-tenant, self-hosted chat application. All services run in Docker Compose. There is no cloud dependency — the entire stack runs on one machine.
@@ -331,58 +333,234 @@ Download:
 
 ## WebRTC voice & video calls
 
-Calls are 1-on-1 and only available inside Direct Message rooms (requires friendship).
+Calls are 1-on-1 only, available inside Direct Message rooms (friendship required). The server relays signaling only — all media is peer-to-peer DTLS-SRTP.
 
-### Signaling via Socket.io
+### Call lifecycle state machine
 
 ```
-Caller                    Server (relay)              Callee
-  │                            │                         │
-  │── call_offer ─────────────▶│── call_offer ──────────▶│
-  │   { to, signal, isVideo }  │   { from, signal }      │ (shown in UI)
-  │                            │                         │
-  │                            │◀─── call_answer ────────│
-  │◀── call_answer ────────────│     { to, signal }      │
-  │    { from, signal }        │                         │
-  │                            │                         │
-  │── call_ice ───────────────▶│── call_ice ────────────▶│  (ICE candidates,
-  │◀── call_ice ───────────────│◀─── call_ice ───────────│   both directions)
-  │                            │                         │
-  ╔═══════ WebRTC P2P (DTLS-SRTP, bypasses server) ══════╗
-  ║            direct UDP/TCP media stream                ║
-  ╚═══════════════════════════════════════════════════════╝
+                         ┌─────────────┐
+                         │    idle     │◀──────────────────────────────┐
+                         └──────┬──────┘                               │
+                    user clicks │ call button                          │
+                    ┌───────────┴───────────┐                         │
+                    ▼                       ▼                         │
+             ┌──────────────┐       ┌──────────────┐                  │
+             │   calling    │       │  receiving   │◀─ call_offer     │
+             │  (outgoing)  │       │  (incoming)  │     from server  │
+             └──────┬───────┘       └──────┬───────┘                  │
+    call_offer sent │               user   │ accepts                  │
+    to server       │               answerCall()                      │
+                    │               │                                 │
+                    ▼               ▼                                 │
+             ┌─────────────────────────────┐                         │
+             │         connecting          │                         │
+             │   ICE negotiation in flight │                         │
+             └──────────────┬──────────────┘                         │
+           ICE connected /  │                                        │
+           completed        │                                        │
+                    ▼               ▼                                │
+             ┌─────────────────────────────┐                        │
+             │          connected          │                        │
+             │     call timer running      │                        │
+             └──────────────┬──────────────┘                        │
+    hangup / call_end /     │                                       │
+    PC failed / 4s after    │                                       │
+    ICE disconnect          ▼                                       │
+                         cleanup() ────────────────────────────────▶┘
 ```
 
-The server **only relays signaling** — it never touches the media stream. `call_ice`, `call_offer`, `call_answer` are forwarded to `user:<targetId>` socket room. The server verifies a shared DM exists before relaying (guards against arbitrary call spam).
+States are stored in `useCallStore` (Zustand). The modal is rendered conditionally — `status === 'idle'` returns null.
+
+### Socket.io signaling events
+
+| Event | Direction | Payload | Purpose |
+|---|---|---|---|
+| `call_offer` | client → server → callee | `{ to, signal: RTCSdpInit, isVideo }` | Initiate call; server forwards to `user:<to>` |
+| `call_answer` | callee → server → caller | `{ to, signal: RTCSdpInit }` | Accept call; sets remote description on caller |
+| `call_ice` | either → server → other | `{ to, candidate: RTCIceCandidateInit }` | ICE candidate exchange; relayed bidirectionally |
+| `call_end` | either → server → other | `{ to }` | Normal hang-up; closes PC on both sides |
+| `call_reject` | callee → server → caller | `{ to }` | Callee explicitly declines |
+| `call_busy` | server → caller | `{ to }` | Callee already in a call |
+
+Server guards: before forwarding any call event, the backend verifies a shared DM room exists between caller and callee (`prisma.room.findFirst` with both user IDs). This prevents call spam to arbitrary user IDs.
+
+### Full signaling sequence
+
+```
+Caller                    Server                      Callee
+  │                          │                           │
+  │─ getUserMedia() ─────────│                           │
+  │─ createPeer()            │                           │
+  │─ addTrack() ×N           │                           │
+  │─ createOffer() ──────────│                           │
+  │─ setLocalDescription()   │                           │
+  │──── call_offer ─────────▶│──── call_offer ──────────▶│
+  │     { signal: SDP }      │     { from, signal }      │ UI shows "Incoming"
+  │                          │                           │
+  │                          │     user clicks Accept    │
+  │                          │◀─── call_answer ──────────│ getUserMedia, createPeer,
+  │◀─── call_answer ─────────│     { signal: SDP }       │ setRemoteDescription,
+  │     setRemoteDescription │                           │ createAnswer, setLocal
+  │     flushIceBuffer       │                           │
+  │                          │                           │
+  │──── call_ice ───────────▶│──── call_ice ────────────▶│  ↑ both sides emit
+  │◀─── call_ice ────────────│◀─── call_ice ─────────────│  ↓ candidates as
+  │     addIceCandidate()    │                           │    they are found
+  │                          │                           │
+  ╔══════════════════════════════════════════════════════╗
+  ║        DTLS-SRTP media (peer-to-peer or via TURN)    ║
+  ╚══════════════════════════════════════════════════════╝
+  │                          │                           │
+  │  PC: connected           │           PC: connected   │
+  │  status → 'connected'    │      status → 'connected' │
+  │  timer starts            │            timer starts   │
+```
+
+### RTCPeerConnection creation
+
+```typescript
+const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+
+// Suppress automatic renegotiation — offer is created manually right after addTrack
+pc.onnegotiationneeded = () => {}
+
+// Forward ICE candidates to remote via server relay
+pc.onicecandidate = e => {
+  if (e.candidate) socket.emit('call_ice', { to: targetId, candidate: e.candidate.toJSON() })
+}
+
+// Track handler — add to our own stream rather than relying on e.streams[0]
+pc.ontrack = e => {
+  remoteStreamRef.current.addTrack(e.track)
+  attachRemoteStream()  // sets remoteVideoRef.current.srcObject
+}
+
+// Connection state → UI status
+pc.onconnectionstatechange = () => {
+  if (pc.connectionState === 'connected') set({ status: 'connected' })
+  if (pc.connectionState === 'failed')    hangUpRef.current(false)
+}
+
+// ICE state → UI status + recovery window
+pc.oniceconnectionstatechange = () => {
+  if (pc.iceConnectionState === 'checking')   set({ status: 'connecting' })
+  if (pc.iceConnectionState === 'connected')  set({ status: 'connected' })
+  if (pc.iceConnectionState === 'disconnected') {
+    setTimeout(() => {
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed')
+        hangUpRef.current(false)
+    }, 4000)  // give browser 4 s to self-recover before tearing down
+  }
+  if (pc.iceConnectionState === 'failed') hangUpRef.current(false)
+}
+```
+
+### ICE candidate buffering
+
+ICE candidates from the remote peer can arrive over the socket **before** `setRemoteDescription` is called (especially for the callee who processes the offer asynchronously). Adding a candidate before a remote description is set throws an exception.
+
+Solution: buffer all arriving candidates in `iceCandidateBuffer.current[]`. After `setRemoteDescription` succeeds, `flushIceBuffer()` drains the buffer and sets `remoteDescSet.current = true`. Subsequent candidates are applied immediately.
+
+```typescript
+function onIce({ candidate }) {
+  if (pcRef.current && remoteDescSet.current) {
+    pcRef.current.addIceCandidate(new RTCIceCandidate(candidate))
+  } else {
+    iceCandidateBuffer.current.push(candidate)  // hold until remoteDesc is set
+  }
+}
+
+async function flushIceBuffer(pc) {
+  remoteDescSet.current = true
+  const queued = iceCandidateBuffer.current.splice(0)
+  for (const c of queued) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {})
+}
+```
 
 ### ICE / NAT traversal
 
 ```typescript
-const ICE_SERVERS = [
+const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   // TURN relay — required for symmetric NAT (corporate/mobile networks)
   { urls: 'turn:openrelay.metered.ca:80',  username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', ... },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
 ]
 ```
 
-STUN resolves public IPs for full-cone NATs. TURN is a fallback relay for symmetric NAT (common in home routers and mobile data). Without TURN, calls simply fail to connect between many real-world networks.
+**STUN** (Session Traversal Utilities for NAT): tells the client its public IP:port — enough for full-cone NAT (common in home routers). Free, zero bandwidth cost.
+
+**TURN** (Traversal Using Relays around NAT): full media relay through a server — required for symmetric NAT (common on corporate networks and mobile data where port mapping is not preserved). Without TURN, calls fail silently between many real-world networks.
+
+**Why multiple TURN endpoints?** Port 80 traverses most firewalls that block non-HTTP. Port 443 passes HTTPS firewalls. `?transport=tcp` uses TCP instead of UDP — last resort for deeply firewalled environments that block UDP entirely.
 
 ### Key implementation decisions
 
-**`new MediaStream() + addTrack` vs `e.streams[0]`:**
-`e.streams[0]` can be `undefined` in Firefox and some mobile browsers when no stream is bundled with the track. Using a persistent `remoteStreamRef = useRef(new MediaStream())` and calling `addTrack(e.track)` is reliable across all browsers.
+**`remoteStreamRef` — `addTrack` vs `e.streams[0]`:**
+`e.streams[0]` can be `undefined` in Firefox and some mobile browsers when the sender does not bundle a `MediaStream`. Using a persistent `remoteStreamRef = useRef(new MediaStream())` and calling `addTrack(e.track)` works reliably across all browsers and handles tracks added at different times.
 
-**`hangUpRef` pattern:**
-PC event handlers (`ontrack`, `onconnectionstatechange`) are closures created once. If they capture `hangUp` directly, they get a stale version when `remoteUserId` changes. Keeping `hangUpRef.current = hangUp` in a `useEffect` ensures handlers always call the latest version.
+**`hangUpRef` — stale closure prevention:**
+`onconnectionstatechange` and `oniceconnectionstatechange` are closures created once inside `createPeer`. If they capture `hangUp` directly, they hold a stale version from the render cycle when the peer was created. `hangUpRef.current = hangUp` is updated in a `useEffect` each render, so the handlers always call the latest closure with the current `remoteUserId`.
 
 **`onnegotiationneeded = () => {}`:**
-`addTrack` triggers `onnegotiationneeded` in modern browsers. Since we create the offer manually immediately after adding tracks, we suppress automatic renegotiation to avoid a double-offer race.
+`pc.addTrack()` triggers the `onnegotiationneeded` event in modern browsers, which would cause an automatic re-offer. Since we call `createOffer()` manually right after adding tracks, we suppress this to prevent a double-offer race where two SDPs are sent.
 
-**ICE disconnection recovery:**
-`'disconnected'` is a transient ICE state (network blip). We wait 4 seconds before tearing down — the browser may self-recover. `'failed'` is permanent → immediate hangup.
+**ICE disconnected recovery window:**
+`'disconnected'` is a transient state triggered by a momentary network blip (e.g. Wi-Fi handoff). The browser can self-recover within a few seconds. We wait 4 seconds and re-check — if still disconnected or failed, we tear down. `'failed'` is non-recoverable → immediate hangup.
+
+**`cleanup()` resets `remoteStreamRef`:**
+On hangup, `remoteStreamRef.current = new MediaStream()` replaces the old stream rather than clearing tracks from it. This prevents a stale stream (with ended tracks) being reused if the user immediately starts a new call.
+
+### Mic and camera toggles
+
+Tracks are muted in place — no renegotiation needed. `t.enabled = false` tells the encoder to send silence/black frames; the bandwidth and connection are preserved.
+
+```typescript
+function toggleMic() {
+  localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
+  setMicMuted(v => !v)
+}
+function toggleCam() {
+  localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled })
+  setCamOff(v => !v)
+}
+```
+
+### UI components
+
+| Element | Condition |
+|---|---|
+| Remote video `<video>` | Always rendered (needed for audio even in voice calls); `opacity-0` until connected + video mode |
+| User avatar | Shown while not yet connected OR in voice-only call |
+| Local video PiP | Rendered only if `isVideo` — bottom-right corner overlay |
+| Call timer badge | Shown once `status === 'connected'`; increments every second |
+| Ringing / Connecting / error text | Animated pulse; replaced by timer after connected |
+| Mic button | Always visible; turns red when muted |
+| Camera button | Only visible in video calls |
+| Hang up button | Large red circle; always visible after call is established |
+| Accept / Reject buttons | Shown only in `receiving` state |
+
+### Error handling
+
+| Error | When | Action |
+|---|---|---|
+| `NotAllowedError` (DOMException) | `getUserMedia` denied | Show "Microphone/camera access denied", auto-hangup after 2 s |
+| `NotFoundError` (DOMException) | No mic/camera device | Show "No microphone/camera found", auto-hangup after 2 s |
+| Other `getUserMedia` error | Any | Show "Failed to start call" / "Failed to connect", auto-hangup after 2 s |
+| ICE `failed` state | NAT traversal failure | Immediate hangup (no recovery attempt) |
+| ICE `disconnected` > 4 s | Network blip | Hangup if not recovered |
+
+### Testing calls
+
+**Same machine (two browser tabs):** Works with STUN only — both tabs are on the same loopback, so no NAT traversal needed.
+
+**Same LAN (two devices):** Usually works with STUN — both devices get local IP candidates.
+
+**Across the internet / different NATs:** Requires TURN. Both devices must be able to reach `openrelay.metered.ca` on port 80, 443, or 443/TCP.
+
+**To verify TURN is being used:** open Chrome DevTools → `chrome://webrtc-internals` → look for `relay` candidates in the ICE candidate list. If only `srflx` (server reflexive / STUN) or `host` (local) candidates appear, TURN is not being used.
 
 ---
 

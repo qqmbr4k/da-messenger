@@ -8,7 +8,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth'
 const router = Router()
 
 const EJABBERD_API = process.env.EJABBERD_API_URL || 'http://ejabberd:5280'
-const XMPP_HOST = 'xmpp.localhost'
+const XMPP_HOST = process.env.XMPP_HOST || 'xmpp.localhost'
 
 async function ejabberdRegister(username: string, password: string) {
   try {

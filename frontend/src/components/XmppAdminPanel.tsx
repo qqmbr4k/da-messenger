@@ -154,7 +154,7 @@ export default function XmppAdminPanel() {
           <div className="bg-gray-750 rounded p-3 text-xs text-gray-400 space-y-1">
             <p className="font-semibold text-gray-300">How to test federation:</p>
             <p>1. Start the second XMPP node: <code className="bg-gray-700 px-1 rounded">docker compose --profile federation up -d ejabberd-b</code></p>
-            <p>2. Connect a Jabber client to <code className="bg-gray-700 px-1 rounded">localhost:5222</code> (server A) and another to <code className="bg-gray-700 px-1 rounded">localhost:5223</code> (server B)</p>
+            <p>2. Connect a Jabber client to <code className="bg-gray-700 px-1 rounded">{window.location.hostname}:5222</code> (server A) and another to <code className="bg-gray-700 px-1 rounded">{window.location.hostname}:5223</code> (server B)</p>
             <p>3. Add contact <code className="bg-gray-700 px-1 rounded">user@xmpp-b.localhost</code> from server A — federation handshake will appear above</p>
             <p>4. Domains: <code className="bg-gray-700 px-1 rounded">xmpp.localhost</code> and <code className="bg-gray-700 px-1 rounded">xmpp-b.localhost</code></p>
           </div>
@@ -167,7 +167,7 @@ export default function XmppAdminPanel() {
         <div className="text-sm text-gray-400 space-y-1">
           <p>Use any XMPP client (Gajim, Pidgin, Conversations, etc.) with these settings:</p>
           <ul className="list-disc list-inside space-y-0.5 ml-2">
-            <li>Server: <code className="bg-gray-700 text-gray-200 px-1 rounded">xmpp.localhost</code> (port 5222)</li>
+            <li>Server: <code className="bg-gray-700 text-gray-200 px-1 rounded">{window.location.hostname}</code> (port 5222)</li>
             <li>Username: your DAMessenger username</li>
             <li>Password: your DAMessenger password</li>
             <li>TLS: optional (disabled in dev)</li>

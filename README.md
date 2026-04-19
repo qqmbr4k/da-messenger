@@ -120,6 +120,8 @@ Click **Settings** ⚙ in the top-right of any room you own or admin.
 
 ## Features
 
+> **Complete feature reference (every detail):** [docs/FEATURES.md](docs/FEATURES.md)
+
 ### Auth & accounts
 - Register with email + username + password (argon2id hashing)
 - Persistent login across browser restarts (JWT in httpOnly cookie)
@@ -257,9 +259,14 @@ Connect one Jabber client to each, add a cross-server contact (`user@xmpp-b.loca
 
 ---
 
-## Architecture
+## Docs
 
-> **Full deep-dive:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — DB schema, message sequencing, presence state machine, WebRTC call flow, XMPP bridge protocol, FTS implementation, all Socket.io events, startup dependency graph, security notes.
+| Document | What's inside |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | DB schema, message sequencing, presence state machine, WebRTC call flow, XMPP bridge protocol, FTS implementation, all Socket.io events, startup dependency graph, security notes |
+| [docs/FEATURES.md](docs/FEATURES.md) | Complete feature reference — every feature, option, and behaviour grouped by area |
+
+## Architecture
 
 ```
 Browser (React + Socket.io)

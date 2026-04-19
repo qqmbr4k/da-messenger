@@ -168,6 +168,20 @@ export default function ChatLayout() {
       )}
       <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} onOpenSearch={() => setShowSearch(true)} />
       <main className="flex-1 overflow-hidden flex flex-col">
+        <header className="shrink-0 h-11 bg-[#313338] border-b border-[#1e1f22] flex items-center px-4 gap-3">
+          <div className="flex-1 flex justify-center">
+            <button
+              onClick={() => setShowSearch(true)}
+              className="flex items-center gap-2 bg-[#1e1f22] hover:bg-[#2b2d31] border border-[#3f4248] rounded-md px-3 h-7 text-[#949ba4] hover:text-[#dbdee1] text-xs transition-colors w-64 max-w-full"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="flex-1 text-left">Search</span>
+              <span className="text-[#6b6f78] text-[10px] shrink-0">⌘K</span>
+            </button>
+          </div>
+        </header>
         <Routes>
           <Route path="/" element={activeRoomId
             ? <ChatWindow
