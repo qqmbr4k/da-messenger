@@ -38,8 +38,8 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm">
         <div className="bg-[#2b2d31] border border-[#3f4248] rounded-2xl p-8 shadow-2xl">
           <div className="flex flex-col items-center mb-7">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center mb-3 shadow-lg">
-              <img src="/logo.png" alt="DAMessenger" className="w-10 h-10 object-contain" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#4a154b] to-[#7c3085] flex items-center justify-center mb-4 shadow-lg">
+              <span className="text-white text-2xl font-black">DA</span>
             </div>
             <h1 className="text-2xl font-bold text-white">Create an account</h1>
           </div>

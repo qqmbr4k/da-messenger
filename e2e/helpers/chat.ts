@@ -1,24 +1,24 @@
 import { Page, expect } from '@playwright/test'
 
 /**
- * Create a room by hovering the Channels section to reveal the + button.
+ * Create a room by hovering the Rooms section to reveal the + button.
  * name is auto-lowercased and space→dash by the app.
  */
 export async function createRoom(page: Page, name: string, description = '', isPrivate = false) {
-  // Hover over the Channels section header to reveal the + button
-  const sectionHeader = page.locator('text=Channels').first()
+  // Hover over the Rooms section header to reveal the + button
+  const sectionHeader = page.locator('text=Rooms').first()
   await sectionHeader.hover()
-  await page.locator('button[title="Add channels"]').click()
+  await page.locator('button[title="Add rooms"]').click()
 
-  // Fill the Create Channel modal
+  // Fill the Create Room modal
   await page.locator('input[placeholder="e.g. general"]').fill(name)
   if (description) {
-    await page.locator('textarea[placeholder*="channel about"]').fill(description)
+    await page.locator('textarea[placeholder*="room about"]').fill(description)
   }
   if (isPrivate) {
     await page.locator('label:has-text("Private")').click()
   }
-  await page.locator('button:has-text("Create Channel")').click()
+  await page.locator('button:has-text("Create Room")').click()
   // Modal closes and room is selected
   await expect(page.locator(`button:has-text("${name}")`).first()).toBeVisible({ timeout: 8_000 })
 }

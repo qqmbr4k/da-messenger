@@ -122,7 +122,9 @@ router.get('/:attachmentId', requireAuth, async (req: AuthRequest, res: Response
   const isInline = attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/') || attachment.mimeType === 'application/pdf'
   const disposition = isInline ? 'inline' : 'attachment'
   res.setHeader('Content-Type', attachment.mimeType)
-  res.setHeader('Content-Disposition', `${disposition}; filename="${attachment.originalName}"`)
+  const ascii = attachment.originalName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '\\"')
+  const safeFilename = encodeURIComponent(attachment.originalName).replace(/'/g, '%27')
+  res.setHeader('Content-Disposition', `${disposition}; filename="${ascii}"; filename*=UTF-8''${safeFilename}`)
   if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength)
   ;(s3Res.Body as Readable).pipe(res)
 })

@@ -16,10 +16,10 @@ test.describe('2.4 Chat Rooms', () => {
     await createRoom(page, `uniq-${id}`)
 
     // Try to create again with same name
-    await page.locator('text=Channels').first().hover()
-    await page.locator('button[title="Add channels"]').click()
+    await page.locator('text=Rooms').first().hover()
+    await page.locator('button[title="Add rooms"]').click()
     await page.locator('input[placeholder="e.g. general"]').fill(`uniq-${id}`)
-    await page.locator('button:has-text("Create Channel")').click()
+    await page.locator('button:has-text("Create Room")').click()
     await expect(page.locator('p.text-red-400').first()).toBeVisible({ timeout: 6_000 })
   })
 
@@ -42,7 +42,7 @@ test.describe('2.4 Chat Rooms', () => {
     await createRoom(page, `other-${id}`)
 
     await page.locator('a[href="/rooms"]').click()
-    await page.locator('input[placeholder="Search channels..."]').fill(`findme-${id}`)
+    await page.locator('input[placeholder="Search public rooms..."]').fill(`findme-${id}`)
     // p:has-text scopes to catalog rows only (not sidebar buttons)
     await expect(page.locator(`p:has-text("# findme-${id}")`).first()).toBeVisible()
     await expect(page.locator(`p:has-text("# other-${id}")`)).toBeHidden()
@@ -79,9 +79,9 @@ test.describe('2.4 Chat Rooms', () => {
     await page2.locator('button:has-text("Settings")').first().click()
     await expect(page2.locator('[data-testid="manage-room-modal"]')).toBeVisible()
     await clickModalTab(page2, 'settings')
-    // Accept the confirm dialog and click Leave Channel
+    // Accept the confirm dialog and click Leave Room
     page2.once('dialog', d => d.accept())
-    await page2.locator('button:has-text("Leave Channel")').click()
+    await page2.locator('button:has-text("Leave Room")').click()
     await expect(page2.locator(`button:has-text("${roomName}")`)).toBeHidden({ timeout: 8_000 })
     await ctx2.close()
   })
@@ -96,7 +96,7 @@ test.describe('2.4 Chat Rooms', () => {
     await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
     await clickModalTab(page, 'settings')
     page.once('dialog', d => d.accept())
-    await page.locator('button:has-text("Delete Channel")').click()
+    await page.locator('button:has-text("Delete Room")').click()
     await expect(page.locator(`button:has-text("delroom-${id}")`)).toBeHidden({ timeout: 8_000 })
   })
 
@@ -123,8 +123,8 @@ test.describe('2.4 Chat Rooms', () => {
     await page.locator('button:has-text("Settings")').first().click()
     await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
     await clickModalTab(page, 'settings')
-    // The Channel Name label is followed by the name input
-    const nameInput = page.locator('label:has-text("Channel Name")').locator('..').locator('input')
+    // The Room Name label is followed by the name input
+    const nameInput = page.locator('label:has-text("Room Name")').locator('..').locator('input')
     await nameInput.clear()
     await nameInput.fill(`after-${id}`)
     await page.locator('button:has-text("Save Changes")').click()

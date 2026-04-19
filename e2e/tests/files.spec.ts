@@ -73,8 +73,8 @@ test.describe('2.6 Attachments', () => {
     await attachAndSend(page, filePath)
     await expect(page.locator(`text=ftab-${id}.txt`)).toBeVisible({ timeout: 10_000 })
 
-    // Open Files tab
-    await page.locator('button:has-text("📎 Files")').first().click()
+    // Open Files panel (icon button in header)
+    await page.locator('button[title="Files"]').first().click()
     await expect(page.locator(`text=ftab-${id}.txt`)).toBeVisible()
     fs.unlinkSync(filePath)
   })

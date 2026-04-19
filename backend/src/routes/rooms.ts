@@ -112,6 +112,13 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
 
 // Bulk presence for all room members
 router.get('/:id/presence', requireAuth, async (req: AuthRequest, res: Response) => {
+  const isMember = await prisma.roomMember.findUnique({
+    where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
+  })
+  if (!isMember) {
+    res.status(403).json({ error: 'Access denied' })
+    return
+  }
   const members = await prisma.roomMember.findMany({
     where: { roomId: req.params.id },
     select: { userId: true },

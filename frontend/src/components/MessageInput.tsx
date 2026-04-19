@@ -15,7 +15,6 @@ export default function MessageInput({ onSend, onTyping }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
@@ -71,36 +70,19 @@ export default function MessageInput({ onSend, onTyping }: Props) {
   const canSend = (text.trim().length > 0 || files.length > 0) && !sending
 
   return (
-    <div className="px-4 pb-4 shrink-0 relative" onClick={() => setShowEmoji(false)}>
+    <div className="px-4 pb-4 pt-0 shrink-0 relative" onClick={() => setShowEmoji(false)}>
       <div
-        className="bg-[#383a40] border border-[#4a4d55] rounded-xl overflow-hidden focus-within:border-[#5865f2]/50 transition-colors"
+        className="bg-[#383a40] rounded-lg overflow-hidden focus-within:bg-[#40434a] transition-colors"
         onClick={e => e.stopPropagation()}
       >
-        {/* Formatting toolbar */}
-        <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-0 border-b border-[#1e1f22]/50">
-          <FormatButton title="Bold (Ctrl+B)" onClick={() => wrapSelection('**')}>
-            <strong className="text-[13px]">B</strong>
-          </FormatButton>
-          <FormatButton title="Italic (Ctrl+I)" onClick={() => wrapSelection('_')}>
-            <em className="text-[13px]">I</em>
-          </FormatButton>
-          <FormatButton title="Strikethrough" onClick={() => wrapSelection('~~')}>
-            <s className="text-[13px]">S</s>
-          </FormatButton>
-          <div className="w-px h-4 bg-[#4a4d55] mx-1" />
-          <FormatButton title="Inline code" onClick={() => wrapSelection('`')}>
-            <span className="font-mono text-[12px]">{`<>`}</span>
-          </FormatButton>
-          <FormatButton title="Code block" onClick={() => wrapSelection('```\n', '\n```')}>
-            <span className="font-mono text-[11px]">{ '{ }' }</span>
-          </FormatButton>
-        </div>
-
         {/* File previews */}
         {files.length > 0 && (
-          <div className="flex gap-2 px-3 pt-2 flex-wrap">
+          <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap border-b border-[#1e1f22]/40">
             {files.map((f, i) => (
-              <div key={i} className="bg-[#2b2d31] border border-[#3f4248] rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5 max-w-[180px]">
+              <div key={i} className="bg-[#2b2d31] rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5 max-w-[180px]">
+                <svg className="w-3.5 h-3.5 text-[#5865f2] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
                 <span className="text-[#949ba4] truncate flex-1">{f.name}</span>
                 <button
                   onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
@@ -132,63 +114,77 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         {/* Bottom toolbar */}
         <div className="flex items-center justify-between px-2 pb-2 pt-0">
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => fileRef.current?.click()}
-              title="Attach file"
-              className="w-8 h-8 flex items-center justify-center text-[#949ba4] hover:text-white rounded-lg hover:bg-[#4a4d55] transition-colors text-lg"
-            >
-              +
-            </button>
+            {/* Attach file */}
+            <ToolbarButton onClick={() => fileRef.current?.click()} title="Attach file">
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </ToolbarButton>
             <input ref={fileRef} type="file" multiple className="hidden"
               onChange={e => {
                 if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)])
-                // reset input so same file can be selected again
                 if (fileRef.current) fileRef.current.value = ''
               }}
             />
+
+            {/* Emoji */}
             <div className="relative">
-              <button
-                onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }}
-                title="Emoji"
-                className="w-8 h-8 flex items-center justify-center text-[#949ba4] hover:text-white rounded-lg hover:bg-[#4a4d55] transition-colors"
-              >
-                😊
-              </button>
+              <ToolbarButton onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }} title="Emoji">
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </ToolbarButton>
               {showEmoji && (
                 <div className="absolute bottom-10 left-0 z-50" onClick={e => e.stopPropagation()}>
                   <EmojiPicker onEmojiClick={handleEmojiClick} theme={'dark' as any} />
                 </div>
               )}
             </div>
+
+            <div className="w-px h-4 bg-[#4a4d55] mx-1" />
+
+            {/* Formatting buttons */}
+            <ToolbarButton onClick={() => wrapSelection('**')} title="Bold (Ctrl+B)">
+              <strong className="text-[13px] font-bold">B</strong>
+            </ToolbarButton>
+            <ToolbarButton onClick={() => wrapSelection('_')} title="Italic (Ctrl+I)">
+              <em className="text-[13px] font-serif">I</em>
+            </ToolbarButton>
+            <ToolbarButton onClick={() => wrapSelection('~~')} title="Strikethrough">
+              <s className="text-[13px]">S</s>
+            </ToolbarButton>
+            <ToolbarButton onClick={() => wrapSelection('`')} title="Inline code">
+              <span className="font-mono text-[12px]">{`<>`}</span>
+            </ToolbarButton>
           </div>
 
+          {/* Send button */}
           <button
             onClick={handleSend}
             disabled={!canSend}
-            title="Send (Enter)"
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all font-bold text-sm ${
+            title="Send message (Enter)"
+            className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${
               canSend
-                ? 'bg-[#5865f2] hover:bg-[#4752c4] text-white shadow-sm'
-                : 'bg-[#4a4d55] text-[#6b6f78] cursor-not-allowed'
+                ? 'bg-[#007a5a] hover:bg-[#148567] text-white shadow-sm'
+                : 'text-[#6b6f78] cursor-not-allowed'
             }`}
           >
-            ↑
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19V5m0 0l-7 7m7-7l7 7" />
+            </svg>
           </button>
         </div>
       </div>
-      <p className="text-[11px] text-[#4f5258] text-center mt-1.5">
-        Enter to send · Shift+Enter for new line · Ctrl+B bold · Ctrl+I italic
-      </p>
     </div>
   )
 }
 
-function FormatButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function ToolbarButton({ title, onClick, children }: { title: string; onClick: (e: React.MouseEvent) => void; children: React.ReactNode }) {
   return (
     <button
       title={title}
       onClick={onClick}
-      className="w-7 h-6 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#4a4d55] transition-colors"
+      className="w-8 h-7 flex items-center justify-center text-[#6b6f78] hover:text-[#dce0e8] rounded hover:bg-[#4a4d55] transition-colors"
     >
       {children}
     </button>

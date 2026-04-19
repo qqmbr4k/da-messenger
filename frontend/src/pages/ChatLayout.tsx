@@ -108,16 +108,18 @@ export default function ChatLayout() {
 function WelcomeScreen({ onBrowse }: { onBrowse: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-8 bg-[#313338]">
-      <img src="/logo.png" alt="DAMessenger" className="w-20 h-20 opacity-20 mb-6" />
+      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[#4a154b] to-[#7c3085] flex items-center justify-center mb-6 shadow-xl">
+        <span className="text-white text-3xl font-black">DA</span>
+      </div>
       <h2 className="text-2xl font-bold text-white mb-2">Welcome to DAMessenger</h2>
-      <p className="text-[#949ba4] text-base mb-8 max-w-sm">
-        Select a channel from the sidebar to start chatting, or browse available rooms.
+      <p className="text-[#949ba4] text-sm mb-8 max-w-xs leading-relaxed">
+        Select a room from the sidebar to start chatting, or discover rooms to join.
       </p>
       <button
         onClick={onBrowse}
-        className="bg-[#5865f2] hover:bg-[#4752c4] text-white font-semibold px-6 py-2.5 rounded-lg transition-colors"
+        className="bg-[#007a5a] hover:bg-[#148567] text-white font-semibold px-6 py-2.5 rounded-md transition-colors text-sm"
       >
-        Browse Channels
+        Browse Rooms
       </button>
     </div>
   )

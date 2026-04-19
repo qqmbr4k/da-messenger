@@ -164,6 +164,11 @@ router.post('/:messageId/reactions', requireAuth, async (req: AuthRequest & IoRe
     res.status(400).json({ error: 'emoji required' }); return
   }
 
+  const message = await prisma.message.findUnique({ where: { id: messageId }, select: { roomId: true } })
+  if (!message || message.roomId !== roomId) {
+    res.status(404).json({ error: 'Message not found' }); return
+  }
+
   const existing = await prisma.reaction.findUnique({
     where: { messageId_userId_emoji: { messageId, userId: req.userId!, emoji } },
   })

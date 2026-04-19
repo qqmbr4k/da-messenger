@@ -11,7 +11,7 @@ import MessageInput from './MessageInput'
 import MembersPanel from './MembersPanel'
 import ManageRoomModal from './ManageRoomModal'
 
-type Tab = 'chat' | 'files' | 'members'
+type Panel = 'none' | 'files' | 'members'
 
 interface Room {
   id: string
@@ -48,14 +48,14 @@ function isGroupable(prev: Message, curr: Message): boolean {
   if (prev.author.id !== curr.author.id) return false
   if (curr.replyToId) return false
   const diff = new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime()
-  return diff < 5 * 60 * 1000 // within 5 minutes
+  return diff < 5 * 60 * 1000
 }
 
 // ──────────────────────────────────────────────
-// FilesTab
+// FilesPanel
 // ──────────────────────────────────────────────
 
-function FilesTab({ roomId }: { roomId: string }) {
+function FilesPanel({ roomId }: { roomId: string }) {
   const { data: files = [], isLoading } = useQuery<Attachment[]>({
     queryKey: ['room-files', roomId],
     queryFn: () => api.get(`/rooms/${roomId}/files`).then(r => r.data),
@@ -69,53 +69,62 @@ function FilesTab({ roomId }: { roomId: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[#6b6f78] text-sm">
+      <div className="w-80 border-l border-[#1e1f22] flex items-center justify-center text-[#6b6f78] text-sm bg-[#2b2d31]">
         Loading files...
-      </div>
-    )
-  }
-  if (files.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-[#6b6f78] gap-3">
-        <span className="text-5xl">📂</span>
-        <p className="text-sm">No files uploaded yet</p>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
-      <div className="space-y-2 max-w-2xl">
-        {files.map(f => (
-          <div key={f.id} className="bg-[#2b2d31] border border-[#3f4248] rounded-xl p-4 flex items-center gap-4 hover:bg-[#32363d] transition-colors">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-2xl bg-[#383a40]">
-              {f.mimeType.startsWith('image/') ? '🖼️' : f.mimeType.includes('pdf') ? '📕' : f.mimeType.includes('zip') || f.mimeType.includes('tar') ? '📦' : '📄'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <a
-                href={`/api/rooms/${roomId}/files/${f.id}`}
-                className="text-[#00aff4] hover:underline text-sm font-semibold truncate block"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {f.originalName}
-              </a>
-              <p className="text-[#6b6f78] text-xs mt-1">
-                {formatSize(f.size)} · Uploaded by <span className="text-[#949ba4]">{f.message.author.username}</span> · {format(new Date(f.createdAt), 'MMM d, yyyy')}
-              </p>
-              {f.comment && <p className="text-[#949ba4] text-xs mt-0.5 italic">{f.comment}</p>}
-            </div>
-            <a
-              href={`/api/rooms/${roomId}/files/${f.id}`}
-              download={f.originalName}
-              className="text-xs text-[#949ba4] hover:text-white border border-[#3f4248] hover:border-[#5865f2] rounded-lg px-3 py-1.5 transition-colors shrink-0 font-medium"
-              title="Download"
-            >
-              ↓ Download
-            </a>
-          </div>
-        ))}
+    <div className="w-80 border-l border-[#1e1f22] flex flex-col bg-[#2b2d31] overflow-hidden">
+      <div className="px-4 py-3 border-b border-[#1e1f22] shrink-0">
+        <h3 className="font-semibold text-white text-sm">Files</h3>
+        <p className="text-[#6b6f78] text-xs mt-0.5">{files.length} file{files.length !== 1 ? 's' : ''}</p>
       </div>
+      {files.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-[#6b6f78] gap-3 px-6 text-center">
+          <svg className="w-12 h-12 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+          </svg>
+          <p className="text-sm">No files shared yet</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {files.map(f => (
+            <div key={f.id} className="bg-[#383a40] rounded-lg p-3 group">
+              <div className="flex items-start gap-2.5">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-lg bg-[#2b2d31]">
+                  {f.mimeType.startsWith('image/') ? '🖼️' : f.mimeType.includes('pdf') ? '📕' : '📄'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <a
+                    href={`/api/rooms/${roomId}/files/${f.id}`}
+                    className="text-[#00aff4] hover:underline text-sm font-medium truncate block"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {f.originalName}
+                  </a>
+                  <p className="text-[#6b6f78] text-xs mt-0.5">
+                    {formatSize(f.size)} · {f.message.author.username}
+                  </p>
+                  <p className="text-[#4f5258] text-xs">{format(new Date(f.createdAt), 'MMM d, yyyy')}</p>
+                </div>
+                <a
+                  href={`/api/rooms/${roomId}/files/${f.id}`}
+                  download={f.originalName}
+                  className="opacity-0 group-hover:opacity-100 text-[#949ba4] hover:text-white transition-all"
+                  title="Download"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -129,7 +138,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [tab, setTab] = useState<Tab>('chat')
+  const [panel, setPanel] = useState<Panel>('none')
   const [showManage, setShowManage] = useState(false)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -168,7 +177,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     api.post(`/rooms/${roomId}/messages/watermark`, { seq }).catch(() => {})
   }, [roomId])
 
-  // Initial load
   useEffect(() => {
     setMessages([])
     setHasMore(true)
@@ -186,7 +194,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
         const maxSeq = Math.max(...msgs.map(m => m.seq ?? 0))
         localMaxSeq.current = maxSeq
 
-        // Show unread divider if there are unread messages
         if (lastSeen > 0 && lastSeen < maxSeq) {
           const firstUnread = msgs.find(m => (m.seq ?? 0) > lastSeen)
           if (firstUnread) setUnreadDividerSeq(firstUnread.seq ?? null)
@@ -213,7 +220,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     }
   }, [fetchMessages])
 
-  // Socket subscription
   useEffect(() => {
     const socket = getSocket()
     socket.emit('join_room', roomId)
@@ -337,8 +343,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       replyToId: replyTo?.id || null,
     }).then(r => r.data as Message)
 
-    // Add message to state immediately so attachment updates can find it.
-    // The socket dedup (prev.some(m => m.id === msg.id)) prevents double-add.
     setMessages(prev => {
       if (prev.some(m => m.id === msg.id)) return prev
       const withReactions = { ...msg, reactions: msg.reactions ?? [], attachments: msg.attachments ?? [] }
@@ -367,57 +371,80 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m))
   }
 
+  function togglePanel(p: Panel) {
+    setPanel(prev => prev === p ? 'none' : p)
+  }
+
   const isOwner = room?.ownerId === userId
   const isAdmin = room?.admins?.some(a => a.userId === userId) ?? false
   const isDirect = room?.type === 'DIRECT'
-  const tabs: Tab[] = isDirect ? ['chat', 'files'] : ['chat', 'files', 'members']
-
-  const roomDisplayName = isDirect ? room?.description : `# ${room?.name}`
+  const roomDisplayName = isDirect ? room?.description : room?.name
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-[#313338]">
       {/* Header */}
-      <div className="bg-[#313338] border-b border-[#1e1f22] px-4 shrink-0 shadow-sm">
-        <div className="flex items-center justify-between pt-2.5 pb-0 min-h-[44px]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="font-bold text-white text-[15px] truncate">{roomDisplayName}</span>
-            {room?.description && !isDirect && (
-              <>
-                <span className="text-[#6b6f78] text-sm">|</span>
-                <span className="text-[#949ba4] text-sm hidden md:block truncate">{room.description}</span>
-              </>
-            )}
-          </div>
-          {!isDirect && (
-            <button
-              onClick={() => setShowManage(true)}
-              className="text-xs text-[#949ba4] hover:text-white border border-[#3f4248] hover:border-[#5865f2] rounded-md px-2.5 py-1 shrink-0 ml-2 transition-colors"
-            >
-              Settings
-            </button>
+      <div className="bg-[#313338] border-b border-[#1e1f22] px-4 h-[49px] flex items-center shrink-0 shadow-sm gap-3">
+        {/* Channel name */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {isDirect ? (
+            <svg className="w-5 h-5 text-[#949ba4] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          ) : (
+            <span className="text-[#949ba4] text-xl font-light shrink-0 leading-none">#</span>
+          )}
+          <span className="font-bold text-white text-[15px] truncate">{roomDisplayName}</span>
+          {room?.description && !isDirect && (
+            <>
+              <div className="w-px h-4 bg-[#3f4248] shrink-0" />
+              <span className="text-[#949ba4] text-sm truncate hidden lg:block">{room.description}</span>
+            </>
           )}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-0 mt-1 -mx-1">
-          {tabs.map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm capitalize font-medium transition-colors border-b-2 ${
-                tab === t
-                  ? 'text-white border-[#5865f2]'
-                  : 'text-[#949ba4] border-transparent hover:text-[#c8cdd5] hover:border-[#4f5258]'
-              }`}
+        {/* Header actions */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {!isDirect && (
+            <HeaderIconButton
+              active={panel === 'members'}
+              onClick={() => togglePanel('members')}
+              title="Members"
             >
-              {t === 'chat' ? '💬 Chat' : t === 'files' ? '📎 Files' : '👥 Members'}
-            </button>
-          ))}
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </HeaderIconButton>
+          )}
+          <HeaderIconButton
+            active={panel === 'files'}
+            onClick={() => togglePanel('files')}
+            title="Files"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </HeaderIconButton>
+          {!isDirect && (
+            <>
+              <div className="w-px h-5 bg-[#3f4248] mx-1" />
+              <button
+                onClick={() => setShowManage(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm text-[#949ba4] hover:text-white hover:bg-[#3f4248] transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Settings
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Chat tab */}
-      {tab === 'chat' && (
+      {/* Main content area with optional side panel */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Chat area */}
         <div className="flex flex-col flex-1 overflow-hidden relative">
           <div
             ref={scrollRef}
@@ -428,18 +455,18 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
               <div className="text-center text-xs text-[#6b6f78] py-3">Loading older messages...</div>
             )}
             {!hasMore && messages.length > 0 && (
-              <div className="flex items-center gap-3 px-4 py-5 mb-2">
-                <div className="text-4xl">
-                  {isDirect ? '💬' : '#'}
+              <div className="px-4 py-6 mb-2">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-3xl mb-4 shadow-lg">
+                  {isDirect ? '💬' : <span className="text-white font-bold text-2xl">#</span>}
                 </div>
-                <div>
-                  <p className="font-bold text-white text-xl">
-                    {isDirect ? room?.description : room?.name}
-                  </p>
-                  <p className="text-[#949ba4] text-sm mt-0.5">
-                    {isDirect ? 'This is the beginning of your conversation.' : `This is the beginning of the #${room?.name} channel.`}
-                  </p>
-                </div>
+                <p className="font-extrabold text-white text-2xl leading-tight">
+                  {isDirect ? room?.description : `# ${room?.name}`}
+                </p>
+                <p className="text-[#949ba4] text-sm mt-1.5">
+                  {isDirect
+                    ? 'This is the beginning of your direct message history.'
+                    : `This is the very beginning of the #${room?.name} room.${room?.description ? ` ${room.description}` : ''}`}
+                </p>
               </div>
             )}
 
@@ -484,46 +511,60 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             })}
 
             {typingUsers.size > 0 && (
-              <div className="flex items-center gap-2 px-4 py-1 text-[13px] text-[#949ba4] italic">
-                <span className="flex gap-0.5">
+              <div className="flex items-center gap-2 px-4 py-1 text-[13px] text-[#949ba4]">
+                <span className="flex gap-0.5 items-center">
                   <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                   <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-1.5 h-1.5 bg-[#949ba4] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
-                {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                <span className="italic">
+                  {[...typingUsers].join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                </span>
               </div>
             )}
             <div ref={bottomRef} className="h-4" />
           </div>
 
-          {/* Jump to bottom button */}
           {showJumpToBottom && (
             <button
               onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
               className="absolute bottom-24 right-4 bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold rounded-full px-3 py-1.5 shadow-lg transition-colors flex items-center gap-1.5 z-10"
             >
-              <span>↓</span> Jump to present
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+              </svg>
+              Jump to latest
             </button>
           )}
 
           {/* Reply bar */}
           {replyTo && (
             <div className="bg-[#2b2d31] border-t border-[#1e1f22] px-4 py-2 flex items-center justify-between text-sm shrink-0">
-              <span className="truncate text-[#949ba4]">
-                Replying to <span className="text-white font-semibold">{replyTo.author.username}</span>
-                <span className="text-[#6b6f78] ml-1">— {replyTo.content.slice(0, 80)}</span>
-              </span>
-              <button onClick={() => setReplyTo(null)} className="text-[#6b6f78] hover:text-white ml-2 shrink-0 text-lg leading-none">×</button>
+              <div className="flex items-center gap-2 min-w-0">
+                <svg className="w-4 h-4 text-[#5865f2] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                <span className="text-[#949ba4] truncate">
+                  Replying to <span className="text-white font-semibold">{replyTo.author.username}</span>
+                  <span className="text-[#6b6f78] ml-1">— {replyTo.content.slice(0, 80)}</span>
+                </span>
+              </div>
+              <button onClick={() => setReplyTo(null)} className="text-[#6b6f78] hover:text-white ml-2 shrink-0 leading-none p-1 rounded hover:bg-[#3f4248] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           )}
 
           {sendError && <p className="text-red-400 text-xs px-4 pb-1">{sendError}</p>}
           <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
         </div>
-      )}
 
-      {tab === 'files' && <FilesTab roomId={roomId} />}
-      {tab === 'members' && !isDirect && <MembersPanel roomId={roomId} />}
+        {/* Side panel */}
+        {panel === 'files' && <FilesPanel roomId={roomId} />}
+        {panel === 'members' && !isDirect && <MembersPanel roomId={roomId} />}
+      </div>
 
       {showManage && room && (
         <ManageRoomModal
@@ -538,5 +579,25 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
         />
       )}
     </div>
+  )
+}
+
+function HeaderIconButton({
+  children, title, active, onClick,
+}: {
+  children: React.ReactNode; title: string; active?: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`w-9 h-9 flex items-center justify-center rounded transition-colors ${
+        active
+          ? 'text-white bg-[#3f4248]'
+          : 'text-[#949ba4] hover:text-white hover:bg-[#3f4248]'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

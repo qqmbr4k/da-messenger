@@ -19,7 +19,7 @@ test.describe('2.2 Presence and Sessions', () => {
     // Re-opens Members tab if it somehow resets (e.g., due to React re-render)
     await expect(async () => {
       if (!await page2.getByText(/Members —/).isVisible()) {
-        await page2.locator('button:has-text("Members")').first().click()
+        await page2.locator('button[title="Members"]').first().click()
         await page2.getByText(/Members —/).waitFor({ timeout: 5_000 })
       }
       // presA's username appears in members list (backend lowercases: presA${id} → presa${id})

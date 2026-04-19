@@ -33,14 +33,14 @@ export default function RoomCatalog({ onJoin }: Props) {
   return (
     <div className="flex-1 overflow-y-auto p-6 bg-[#313338]">
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-white mb-1">Browse Channels</h1>
-        <p className="text-[#949ba4] text-sm mb-5">Find a channel to join or explore what's happening.</p>
+        <h1 className="text-2xl font-bold text-white mb-1">Browse Rooms</h1>
+        <p className="text-[#949ba4] text-sm mb-5">Find a room to join or explore what's happening.</p>
         <div className="relative mb-5">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b6f78]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
-            placeholder="Search channels..."
+            placeholder="Search public rooms..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full bg-[#383a40] border border-[#4a4d55] rounded-lg pl-10 pr-4 py-2.5 text-sm text-[#dce0e8] placeholder-[#6b6f78] outline-none focus:border-[#5865f2] transition-colors"
@@ -68,7 +68,7 @@ export default function RoomCatalog({ onJoin }: Props) {
           {rooms.length === 0 && (
             <div className="text-center py-12 text-[#6b6f78]">
               <p className="text-4xl mb-3">🔍</p>
-              <p className="text-sm">No channels found{search ? ` for "${search}"` : ''}.</p>
+              <p className="text-sm">No rooms found{search ? ` for "${search}"` : ''}.</p>
             </div>
           )}
         </div>

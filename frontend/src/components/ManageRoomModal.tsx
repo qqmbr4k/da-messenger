@@ -35,7 +35,7 @@ export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: P
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#3f4248]">
           <div>
-            <h2 className="font-bold text-white">Channel Settings</h2>
+            <h2 className="font-bold text-white">Room Settings</h2>
             <p className="text-[#949ba4] text-sm">#{room.name}</p>
           </div>
           <button onClick={onClose} className="text-[#6b6f78] hover:text-white text-2xl leading-none transition-colors">×</button>
@@ -242,24 +242,24 @@ function SettingsTab({ room, isOwner, onDeleted, onRefresh }: {
   }
 
   async function deleteRoom() {
-    if (!confirm('Delete this channel? All messages and files will be permanently lost.')) return
+    if (!confirm('Delete this room? All messages and files will be permanently lost.')) return
     await api.delete(`/rooms/${room.id}`)
     onDeleted()
   }
 
   async function leaveRoom() {
-    if (!confirm('Leave this channel?')) return
+    if (!confirm('Leave this room?')) return
     await api.post(`/rooms/${room.id}/leave`)
     onDeleted()
   }
 
   if (!isOwner) return (
     <div className="space-y-4">
-      <p className="text-[#949ba4] text-sm">Only the channel owner can change settings.</p>
+      <p className="text-[#949ba4] text-sm">Only the room owner can change settings.</p>
       <div className="border-t border-[#3f4248] pt-4">
-        <p className="text-[#949ba4] text-sm mb-3">You can leave this channel at any time.</p>
+        <p className="text-[#949ba4] text-sm mb-3">You can leave this room at any time.</p>
         <button onClick={leaveRoom} className="bg-[#383a40] hover:bg-[#4a4d55] text-[#dce0e8] px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
-          Leave Channel
+          Leave Room
         </button>
       </div>
     </div>
@@ -268,7 +268,7 @@ function SettingsTab({ room, isOwner, onDeleted, onRefresh }: {
   return (
     <div className="space-y-5 max-w-sm">
       <div>
-        <label className="block text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-1.5">Channel Name</label>
+        <label className="block text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-1.5">Room Name</label>
         <input value={name} onChange={e => setName(e.target.value)} className={inputClass()} />
       </div>
       <div>
@@ -295,7 +295,7 @@ function SettingsTab({ room, isOwner, onDeleted, onRefresh }: {
       <div className="border-t border-red-900/30 pt-4">
         <p className="text-[#949ba4] text-sm mb-3">Danger zone — this action cannot be undone.</p>
         <button onClick={deleteRoom} className="bg-red-900/40 hover:bg-red-700 border border-red-900/60 text-red-400 hover:text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
-          Delete Channel
+          Delete Room
         </button>
       </div>
     </div>

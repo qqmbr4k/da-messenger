@@ -122,12 +122,12 @@ export default function MessageItem({
       {/* Left column: avatar or time gutter */}
       <div className="w-10 shrink-0 flex flex-col items-center pt-1">
         {isGrouped ? (
-          <span className="text-[11px] text-[#4f5258] opacity-0 group-hover:opacity-100 transition-opacity w-10 text-center select-none">
+          <span className="text-[11px] text-[#4f5258] opacity-0 group-hover:opacity-100 transition-opacity w-10 text-right select-none leading-none pt-1">
             {timestamp}
           </span>
         ) : (
           <div
-            className={`w-10 h-10 rounded-xl bg-gradient-to-br ${AVATAR_GRADIENTS[colorIdx]} flex items-center justify-center text-[15px] font-bold select-none shadow-sm`}
+            className={`w-10 h-10 rounded-full bg-gradient-to-br ${AVATAR_GRADIENTS[colorIdx]} flex items-center justify-center text-[15px] font-bold select-none shadow-sm`}
           >
             {msg.author.username[0].toUpperCase()}
           </div>
@@ -259,7 +259,7 @@ export default function MessageItem({
       </div>
 
       {/* Floating hover toolbar */}
-      <div className="absolute right-3 -top-4 hidden group-hover:flex items-center bg-[#2b2d31] border border-[#3f4248] rounded-lg shadow-xl px-1 py-1 z-20 gap-0.5">
+      <div className="absolute right-3 -top-5 hidden group-hover:flex items-center bg-[#111214] border border-[#3f4248] rounded-lg shadow-2xl px-1 py-1 z-20 gap-0.5">
         {QUICK_REACTIONS.slice(0, 3).map(e => (
           <button
             key={e}
@@ -272,17 +272,31 @@ export default function MessageItem({
         <button
           onClick={() => setShowReactionPicker(v => !v)}
           title="Add reaction"
-          className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-sm"
+          className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248]"
         >
-          😊
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </button>
         <div className="w-px h-4 bg-[#3f4248] mx-0.5" />
-        <button onClick={onReply} title="Reply" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-base">↩</button>
+        <button onClick={onReply} title="Reply" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248]">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+        </button>
         {canEdit && (
-          <button onClick={() => setEditing(true)} title="Edit" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248] text-base">✎</button>
+          <button onClick={() => setEditing(true)} title="Edit message" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-white rounded hover:bg-[#3f4248]">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
         )}
         {canDelete && (
-          <button onClick={handleDelete} title="Delete" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-red-400 rounded hover:bg-[#3f4248] text-base">🗑</button>
+          <button onClick={handleDelete} title="Delete message" className="w-8 h-7 flex items-center justify-center text-[#949ba4] hover:text-red-400 rounded hover:bg-[#3f4248]">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
         )}
       </div>
     </div>

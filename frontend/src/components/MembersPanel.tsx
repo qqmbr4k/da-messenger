@@ -58,7 +58,7 @@ export default function MembersPanel({ roomId }: { roomId: string }) {
   const isAdmin = adminIds.has(userId!)
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#2b2d31] relative">
+    <div className="w-[240px] border-l border-[#1e1f22] overflow-y-auto bg-[#2b2d31] relative shrink-0">
       <div className="p-4">
         <p className="text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-3">
           Members — {room.members.length}

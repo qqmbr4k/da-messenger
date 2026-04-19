@@ -26,11 +26,11 @@ export default function CreateRoomModal({ onClose, onCreate }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-[#313338] border border-[#3f4248] rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-        <h2 className="text-xl font-bold text-white mb-1">Create a Channel</h2>
-        <p className="text-[#949ba4] text-sm mb-5">Channels are where your team communicates.</p>
+        <h2 className="text-xl font-bold text-white mb-1">Create a Room</h2>
+        <p className="text-[#949ba4] text-sm mb-5">Rooms are where your team communicates.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-1.5">Channel Name</label>
+            <label className="block text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-1.5">Room Name</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b6f78]">#</span>
               <input
@@ -45,7 +45,7 @@ export default function CreateRoomModal({ onClose, onCreate }: Props) {
           <div>
             <label className="block text-[11px] font-semibold text-[#949ba4] uppercase tracking-wider mb-1.5">Description <span className="text-[#4f5258] normal-case font-normal">(optional)</span></label>
             <textarea
-              placeholder="What's this channel about?"
+              placeholder="What's this room about?"
               value={description}
               onChange={e => setDescription(e.target.value)}
               className="w-full bg-[#383a40] border border-[#4a4d55] rounded-lg px-3 py-2.5 text-sm text-[#dce0e8] placeholder-[#6b6f78] outline-none focus:border-[#5865f2] resize-none h-20 transition-colors"
@@ -71,7 +71,7 @@ export default function CreateRoomModal({ onClose, onCreate }: Props) {
               Cancel
             </button>
             <button type="submit" className="px-4 py-2 text-sm bg-[#5865f2] hover:bg-[#4752c4] text-white font-semibold rounded-lg transition-colors">
-              Create Channel
+              Create Room
             </button>
           </div>
         </form>
