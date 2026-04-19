@@ -10,6 +10,22 @@ import { requireAuth, AuthRequest } from '../middleware/auth'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
+const ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'video/mp4', 'video/webm',
+  'audio/mpeg', 'audio/ogg', 'audio/wav',
+  'application/pdf',
+  'application/zip', 'application/x-tar', 'application/gzip',
+  'application/json', 'application/xml',
+  'text/plain', 'text/csv', 'text/markdown',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+])
+
+const INLINE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'video/mp4', 'video/webm'])
+
 const router = Router({ mergeParams: true })
 
 // Upload attachment to a message
@@ -20,6 +36,10 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
       return
     }
     if (err) { next(err); return }
+    if (req.file && !ALLOWED_MIME_TYPES.has(req.file.mimetype)) {
+      res.status(415).json({ error: 'File type not allowed' })
+      return
+    }
     if (req.file?.mimetype.startsWith('image/') && req.file.size > 3 * 1024 * 1024) {
       res.status(413).json({ error: 'Max size: 3MB for images' })
       return
@@ -44,6 +64,12 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
   const { messageId, comment } = req.body
   if (!messageId) {
     res.status(400).json({ error: 'messageId required' })
+    return
+  }
+
+  const msg = await prisma.message.findUnique({ where: { id: messageId }, select: { roomId: true } })
+  if (!msg || msg.roomId !== roomId) {
+    res.status(404).json({ error: 'Message not found' })
     return
   }
 
@@ -119,8 +145,7 @@ router.get('/:attachmentId', requireAuth, async (req: AuthRequest, res: Response
     res.status(404).json({ error: 'File not found' })
     return
   }
-  const isInline = attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/') || attachment.mimeType === 'application/pdf'
-  const disposition = isInline ? 'inline' : 'attachment'
+  const disposition = INLINE_TYPES.has(attachment.mimeType) ? 'inline' : 'attachment'
   res.setHeader('Content-Type', attachment.mimeType)
   const ascii = attachment.originalName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '\\"')
   const safeFilename = encodeURIComponent(attachment.originalName).replace(/'/g, '%27')

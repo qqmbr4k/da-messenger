@@ -36,6 +36,7 @@ const io = new Server(server, {
 app.use(cors({ origin: FRONTEND_URL, credentials: true }))
 app.use(cookieParser())
 app.use(express.json())
+app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); next() })
 
 // Attach io to every request so routes can emit events
 app.use((req: express.Request & { io?: Server }, _res, next) => {

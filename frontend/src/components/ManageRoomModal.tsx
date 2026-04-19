@@ -82,8 +82,7 @@ function MembersTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean
   })
   const adminIds = new Set((data?.admins || []).map((a: any) => a.userId))
 
-  async function kick(uid: string) { await api.delete(`/rooms/${room.id}/members/${uid}`); onRefresh() }
-  async function ban(uid: string) { await api.post(`/rooms/${room.id}/bans`, { userId: uid }); onRefresh() }
+  async function remove(uid: string) { await api.delete(`/rooms/${room.id}/members/${uid}`); onRefresh() }
   async function makeAdmin(uid: string) { await api.post(`/rooms/${room.id}/admins`, { userId: uid }); onRefresh() }
 
   const canAct = (memberId: string) =>
@@ -110,17 +109,8 @@ function MembersTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean
             )}
             {canAct(m.userId) && (
               <button
-                onClick={() => kick(m.userId)}
-                title="Remove from room — user can rejoin"
-                className="text-xs text-[#f0a032] hover:underline px-1"
-              >
-                Kick
-              </button>
-            )}
-            {canAct(m.userId) && (
-              <button
-                onClick={() => ban(m.userId)}
-                title="Ban — user cannot rejoin unless unbanned"
+                onClick={() => remove(m.userId)}
+                title="Remove and ban — user cannot rejoin unless unbanned"
                 className="text-xs text-red-400 hover:underline px-1"
               >
                 Ban

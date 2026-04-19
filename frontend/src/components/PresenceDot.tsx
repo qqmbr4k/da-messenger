@@ -7,11 +7,12 @@ const colors = {
 }
 
 
-export default function PresenceDot({ userId, className = '' }: { userId: string; className?: string }) {
+export default function PresenceDot({ userId, className = '', borderColor = '#2b2d31' }: { userId: string; className?: string; borderColor?: string }) {
   const status = usePresenceStore(s => s.statuses[userId] ?? 'offline')
   return (
     <span
-      className={`inline-block w-2.5 h-2.5 rounded-full ${colors[status]} border-2 border-[#2b2d31] shrink-0 ${className}`}
+      className={`inline-block w-2.5 h-2.5 rounded-full ${colors[status]} shrink-0 ${className}`}
+      style={{ border: `2px solid ${borderColor}` }}
       title={status}
     />
   )

@@ -76,7 +76,7 @@ export default function MembersPanel({ roomId }: { roomId: string }) {
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-xs font-bold text-white">
                   {m.user.username[0].toUpperCase()}
                 </div>
-                <PresenceDot userId={m.userId} className="absolute -bottom-0.5 -right-0.5" />
+                <PresenceDot userId={m.userId} className="absolute -bottom-0.5 -right-0.5" borderColor="#2b2d31" />
               </div>
               <span className="truncate flex-1 font-medium">{m.user.username}</span>
               {m.userId === room.ownerId && (

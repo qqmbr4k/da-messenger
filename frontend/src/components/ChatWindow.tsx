@@ -108,6 +108,7 @@ function FilesPanel({ roomId }: { roomId: string }) {
                   <p className="text-[#6b6f78] text-xs mt-0.5">
                     {formatSize(f.size)} · {f.message.author.username}
                   </p>
+                  {f.comment && <p className="text-[#949ba4] text-xs italic">{f.comment}</p>}
                   <p className="text-[#4f5258] text-xs">{format(new Date(f.createdAt), 'MMM d, yyyy')}</p>
                 </div>
                 <a
@@ -182,6 +183,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     setHasMore(true)
     setReplyTo(null)
     setUnreadDividerSeq(null)
+    setPanel('none')
     localMaxSeq.current = 0
     initialLoadDone.current = false
 
@@ -332,7 +334,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     typingTimer.current = setTimeout(() => { typingTimer.current = null }, 2000)
   }
 
-  async function handleSend(content: string, files: File[]) {
+  async function handleSend(content: string, files: File[], comments: string[] = []) {
     if (content.length > 3072) {
       setSendError('Message is too long (max 3 KB)')
       return
@@ -349,10 +351,12 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       return [...prev, withReactions]
     })
 
-    for (const file of files) {
+    for (let idx = 0; idx < files.length; idx++) {
+      const file = files[idx]
       const form = new FormData()
       form.append('file', file)
       form.append('messageId', msg.id)
+      if (comments[idx]) form.append('comment', comments[idx])
       const { data: att } = await api.post(`/rooms/${roomId}/files`, form)
       setMessages(prev => prev.map(m => m.id === msg.id
         ? { ...m, attachments: [...(m.attachments ?? []), att] }

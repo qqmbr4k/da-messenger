@@ -310,7 +310,7 @@ router.delete('/:id/admins/:userId', requireAuth, async (req: AuthRequest, res: 
   res.json({ ok: true })
 })
 
-// Kick member (removes from room, can rejoin)
+// Remove member — treated as a ban per spec (user cannot rejoin unless unbanned)
 router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
@@ -321,12 +321,17 @@ router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res:
   }
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (room?.ownerId === req.params.userId) {
-    res.status(400).json({ error: 'Cannot kick the owner' })
+    res.status(400).json({ error: 'Cannot remove the owner' })
     return
   }
   await prisma.$transaction([
     prisma.roomMember.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
     prisma.roomAdmin.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
+    prisma.roomBan.upsert({
+      where: { userId_roomId: { userId: req.params.userId, roomId: req.params.id } },
+      create: { userId: req.params.userId, roomId: req.params.id, bannedById: req.userId! },
+      update: {},
+    }),
   ])
   ;(req as IoRequest).io?.to(`user:${req.params.userId}`).emit('removed_from_room', { roomId: req.params.id })
   res.json({ ok: true })

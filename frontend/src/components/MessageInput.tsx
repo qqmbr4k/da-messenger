@@ -1,15 +1,17 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
 
+interface FileEntry { file: File; comment: string }
+
 interface Props {
-  onSend: (content: string, files: File[]) => Promise<void>
+  onSend: (content: string, files: File[], comments: string[]) => Promise<void>
   roomId: string
   onTyping?: () => void
 }
 
 export default function MessageInput({ onSend, onTyping }: Props) {
   const [text, setText] = useState('')
-  const [files, setFiles] = useState<File[]>([])
+  const [entries, setEntries] = useState<FileEntry[]>([])
   const [showEmoji, setShowEmoji] = useState(false)
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -23,16 +25,20 @@ export default function MessageInput({ onSend, onTyping }: Props) {
   }, [text])
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() && files.length === 0) return
+    if (!text.trim() && entries.length === 0) return
     setSending(true)
     try {
-      await onSend(text.trim() || '📎', files)
+      await onSend(
+        text.trim() || '📎',
+        entries.map(e => e.file),
+        entries.map(e => e.comment),
+      )
       setText('')
-      setFiles([])
+      setEntries([])
     } finally {
       setSending(false)
     }
-  }, [text, files, onSend])
+  }, [text, entries, onSend])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -41,10 +47,14 @@ export default function MessageInput({ onSend, onTyping }: Props) {
     }
   }
 
+  function addFiles(newFiles: File[]) {
+    setEntries(prev => [...prev, ...newFiles.map(file => ({ file, comment: '' }))])
+  }
+
   function handlePaste(e: React.ClipboardEvent) {
     const items = Array.from(e.clipboardData.items)
     const fileItems = items.filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean) as File[]
-    if (fileItems.length > 0) setFiles(prev => [...prev, ...fileItems])
+    if (fileItems.length > 0) addFiles(fileItems)
   }
 
   function handleEmojiClick(data: EmojiClickData) {
@@ -67,7 +77,7 @@ export default function MessageInput({ onSend, onTyping }: Props) {
     }, 0)
   }
 
-  const canSend = (text.trim().length > 0 || files.length > 0) && !sending
+  const canSend = (text.trim().length > 0 || entries.length > 0) && !sending
 
   return (
     <div className="px-4 pb-4 pt-0 shrink-0 relative" onClick={() => setShowEmoji(false)}>
@@ -76,20 +86,28 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         onClick={e => e.stopPropagation()}
       >
         {/* File previews */}
-        {files.length > 0 && (
-          <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap border-b border-[#1e1f22]/40">
-            {files.map((f, i) => (
-              <div key={i} className="bg-[#2b2d31] rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5 max-w-[180px]">
-                <svg className="w-3.5 h-3.5 text-[#5865f2] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-                <span className="text-[#949ba4] truncate flex-1">{f.name}</span>
-                <button
-                  onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
-                  className="text-[#6b6f78] hover:text-red-400 shrink-0 transition-colors"
-                >
-                  ×
-                </button>
+        {entries.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-3 pt-3 pb-2 border-b border-[#1e1f22]/40">
+            {entries.map((entry, i) => (
+              <div key={i} className="bg-[#2b2d31] rounded-lg px-2.5 py-2 text-xs flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 text-[#5865f2] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                  <span className="text-[#949ba4] truncate flex-1">{entry.file.name}</span>
+                  <button
+                    onClick={() => setEntries(prev => prev.filter((_, j) => j !== i))}
+                    className="text-[#6b6f78] hover:text-red-400 shrink-0 transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+                <input
+                  value={entry.comment}
+                  onChange={e => setEntries(prev => prev.map((en, j) => j === i ? { ...en, comment: e.target.value } : en))}
+                  placeholder="Add a comment (optional)"
+                  className="bg-[#383a40] rounded px-2 py-1 text-[11px] text-[#dce0e8] placeholder-[#6b6f78] outline-none focus:bg-[#40434a] transition-colors"
+                />
               </div>
             ))}
           </div>
@@ -122,7 +140,7 @@ export default function MessageInput({ onSend, onTyping }: Props) {
             </ToolbarButton>
             <input ref={fileRef} type="file" multiple className="hidden"
               onChange={e => {
-                if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)])
+                if (e.target.files) addFiles(Array.from(e.target.files!))
                 if (fileRef.current) fileRef.current.value = ''
               }}
             />
@@ -155,6 +173,9 @@ export default function MessageInput({ onSend, onTyping }: Props) {
             </ToolbarButton>
             <ToolbarButton onClick={() => wrapSelection('`')} title="Inline code">
               <span className="font-mono text-[12px]">{`<>`}</span>
+            </ToolbarButton>
+            <ToolbarButton onClick={() => wrapSelection('```\n', '\n```')} title="Code block">
+              <span className="font-mono text-[11px]">{'{ }'}</span>
             </ToolbarButton>
           </div>
 
