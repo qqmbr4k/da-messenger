@@ -125,3 +125,21 @@ export function getUserStatus(userId: string): PresenceStatus {
   if (!tabs || tabs.size === 0) return 'offline'
   return computeUserStatus(tabs)
 }
+
+// Server-side: add all of a user's active sockets to a Socket.IO room
+export function joinUserToRoom(io: Server, userId: string, socketRoom: string) {
+  const tabs = userTabs.get(userId)
+  if (!tabs) return
+  for (const tab of tabs.values()) {
+    io.in(tab.socketId).socketsJoin(socketRoom)
+  }
+}
+
+// Server-side: remove all of a user's active sockets from a Socket.IO room
+export function leaveUserFromRoom(io: Server, userId: string, socketRoom: string) {
+  const tabs = userTabs.get(userId)
+  if (!tabs) return
+  for (const tab of tabs.values()) {
+    io.in(tab.socketId).socketsLeave(socketRoom)
+  }
+}

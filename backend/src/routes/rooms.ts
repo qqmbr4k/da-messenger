@@ -2,7 +2,7 @@ import { Router, Response, Request } from 'express'
 import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
 import { requireAuth, AuthRequest } from '../middleware/auth'
-import { getUserStatus } from '../services/presence'
+import { getUserStatus, joinUserToRoom, leaveUserFromRoom } from '../services/presence'
 
 interface IoRequest extends Request { io?: Server }
 
@@ -144,11 +144,19 @@ router.post('/:id/join', requireAuth, async (req: AuthRequest, res: Response) =>
     res.status(403).json({ error: 'You are banned from this room' })
     return
   }
-  await prisma.roomMember.upsert({
+  const existing = await prisma.roomMember.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: room.id } },
-    create: { userId: req.userId!, roomId: room.id },
-    update: {},
   })
+  if (!existing) {
+    await prisma.roomMember.create({ data: { userId: req.userId!, roomId: room.id } })
+    const io = (req as IoRequest).io
+    if (io) {
+      const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { username: true } })
+      joinUserToRoom(io, req.userId!, `room:${room.id}`)
+      io.to(`room:${room.id}`).emit('member_joined', { roomId: room.id, userId: req.userId, username: user?.username })
+      io.to(`user:${req.userId!}`).emit('joined_room', { roomId: room.id, room: { id: room.id, name: room.name, description: room.description, type: room.type, ownerId: room.ownerId } })
+    }
+  }
   res.json({ ok: true })
 })
 
@@ -163,9 +171,14 @@ router.post('/:id/leave', requireAuth, async (req: AuthRequest, res: Response) =
     res.status(403).json({ error: 'Owner cannot leave. Delete the room instead.' })
     return
   }
-  await prisma.roomMember.deleteMany({
-    where: { userId: req.userId, roomId: req.params.id },
-  })
+  const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { username: true } })
+  await prisma.roomMember.deleteMany({ where: { userId: req.userId, roomId: req.params.id } })
+  const io = (req as IoRequest).io
+  if (io) {
+    leaveUserFromRoom(io, req.userId!, `room:${req.params.id}`)
+    io.to(`room:${req.params.id}`).emit('member_left', { roomId: req.params.id, userId: req.userId, username: user?.username })
+    io.to(`user:${req.userId!}`).emit('removed_from_room', { roomId: req.params.id })
+  }
   res.json({ ok: true })
 })
 
@@ -184,6 +197,9 @@ router.put('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       ...(description !== undefined ? { description } : {}),
       ...(type === 'PUBLIC' || type === 'PRIVATE' ? { type } : {}),
     },
+  })
+  ;(req as IoRequest).io?.to(`room:${req.params.id}`).emit('room_updated', {
+    roomId: req.params.id, name: updated.name, description: updated.description, type: updated.type,
   })
   res.json(updated)
 })
@@ -242,6 +258,7 @@ router.post('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) =>
     res.status(400).json({ error: 'Cannot ban the owner' })
     return
   }
+  const bannedUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
   await prisma.$transaction([
     prisma.roomBan.upsert({
       where: { userId_roomId: { userId, roomId: req.params.id } },
@@ -251,7 +268,12 @@ router.post('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) =>
     prisma.roomMember.deleteMany({ where: { userId, roomId: req.params.id } }),
     prisma.roomAdmin.deleteMany({ where: { userId, roomId: req.params.id } }),
   ])
-  ;(req as IoRequest).io?.to(`user:${userId}`).emit('removed_from_room', { roomId: req.params.id })
+  const io = (req as IoRequest).io
+  if (io) {
+    leaveUserFromRoom(io, userId, `room:${req.params.id}`)
+    io.to(`room:${req.params.id}`).emit('member_banned', { roomId: req.params.id, userId, username: bannedUser?.username })
+    io.to(`user:${userId}`).emit('removed_from_room', { roomId: req.params.id })
+  }
   res.json({ ok: true })
 })
 
@@ -290,6 +312,7 @@ router.post('/:id/admins', requireAuth, async (req: AuthRequest, res: Response) 
     create: { userId, roomId: req.params.id },
     update: {},
   })
+  ;(req as IoRequest).io?.to(`room:${req.params.id}`).emit('member_role_changed', { roomId: req.params.id, userId, isAdmin: true })
   res.json({ ok: true })
 })
 
@@ -314,6 +337,7 @@ router.delete('/:id/admins/:userId', requireAuth, async (req: AuthRequest, res: 
   await prisma.roomAdmin.deleteMany({
     where: { userId: req.params.userId, roomId: req.params.id },
   })
+  ;(req as IoRequest).io?.to(`room:${req.params.id}`).emit('member_role_changed', { roomId: req.params.id, userId: req.params.userId, isAdmin: false })
   res.json({ ok: true })
 })
 
@@ -331,11 +355,17 @@ router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res:
     res.status(400).json({ error: 'Cannot remove the owner' })
     return
   }
+  const kickedUser = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { username: true } })
   await prisma.$transaction([
     prisma.roomMember.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
     prisma.roomAdmin.deleteMany({ where: { userId: req.params.userId, roomId: req.params.id } }),
   ])
-  ;(req as IoRequest).io?.to(`user:${req.params.userId}`).emit('removed_from_room', { roomId: req.params.id })
+  const io = (req as IoRequest).io
+  if (io) {
+    leaveUserFromRoom(io, req.params.userId, `room:${req.params.id}`)
+    io.to(`room:${req.params.id}`).emit('member_kicked', { roomId: req.params.id, userId: req.params.userId, username: kickedUser?.username })
+    io.to(`user:${req.params.userId}`).emit('removed_from_room', { roomId: req.params.id })
+  }
   res.json({ ok: true })
 })
 
@@ -390,16 +420,24 @@ router.post('/:id/invitations/accept', requireAuth, async (req: AuthRequest, res
     res.status(403).json({ error: 'You are banned from this room' })
     return
   }
-  await prisma.$transaction([
+  const [, room] = await prisma.$transaction([
     prisma.roomMember.upsert({
       where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
       create: { userId: req.userId!, roomId: req.params.id },
       update: {},
     }),
+    prisma.room.findUnique({ where: { id: req.params.id } }),
     prisma.roomInvitation.delete({
       where: { roomId_userId: { roomId: req.params.id, userId: req.userId! } },
     }),
   ])
+  const io = (req as IoRequest).io
+  if (io && room) {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { username: true } })
+    joinUserToRoom(io, req.userId!, `room:${req.params.id}`)
+    io.to(`room:${req.params.id}`).emit('member_joined', { roomId: req.params.id, userId: req.userId, username: user?.username })
+    io.to(`user:${req.userId!}`).emit('joined_room', { roomId: req.params.id, room: { id: room.id, name: room.name, description: room.description, type: room.type, ownerId: room.ownerId } })
+  }
   res.json({ ok: true })
 })
 

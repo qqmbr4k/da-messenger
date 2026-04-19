@@ -58,31 +58,58 @@ export default function ChatLayout() {
       }
     }
 
+    function onJoinedRoom({ roomId }: { roomId: string }) {
+      qc.invalidateQueries({ queryKey: ['my-rooms'] })
+      socket.emit('join_room', roomId)
+    }
+
     function onNewDm({ id }: { id: string }) {
       qc.invalidateQueries({ queryKey: ['my-rooms'] })
-      // Join the socket room so we receive messages immediately
       socket.emit('join_room', id)
     }
 
     function onMessage(msg: Message & { roomId?: string }) {
       const msgRoomId = (msg as any).roomId as string | undefined
       if (!msgRoomId) return
-      // Suppress badge only when actively viewing the room (on main page with room selected)
       const activelyViewing = location.pathname === '/' && msgRoomId === activeRoomId
       if (activelyViewing) return
       if (msg.author?.id !== userId) increment(msgRoomId)
     }
 
+    function onMemberEvent({ roomId }: { roomId: string }) {
+      qc.invalidateQueries({ queryKey: ['room', roomId] })
+      qc.invalidateQueries({ queryKey: ['my-rooms'] })
+    }
+
+    function onRoomUpdated({ roomId }: { roomId: string }) {
+      qc.invalidateQueries({ queryKey: ['room', roomId] })
+      qc.invalidateQueries({ queryKey: ['my-rooms'] })
+    }
+
     socket.on('presence', onPresence)
     socket.on('removed_from_room', onRemovedFromRoom)
+    socket.on('joined_room', onJoinedRoom)
     socket.on('message', onMessage)
     socket.on('new_dm', onNewDm)
+    socket.on('member_joined', onMemberEvent)
+    socket.on('member_left', onMemberEvent)
+    socket.on('member_kicked', onMemberEvent)
+    socket.on('member_banned', onMemberEvent)
+    socket.on('member_role_changed', onMemberEvent)
+    socket.on('room_updated', onRoomUpdated)
 
     return () => {
       socket.off('presence', onPresence)
       socket.off('removed_from_room', onRemovedFromRoom)
+      socket.off('joined_room', onJoinedRoom)
       socket.off('message', onMessage)
       socket.off('new_dm', onNewDm)
+      socket.off('member_joined', onMemberEvent)
+      socket.off('member_left', onMemberEvent)
+      socket.off('member_kicked', onMemberEvent)
+      socket.off('member_banned', onMemberEvent)
+      socket.off('member_role_changed', onMemberEvent)
+      socket.off('room_updated', onRoomUpdated)
     }
   }, [activeRoomId, userId, location.pathname])
 

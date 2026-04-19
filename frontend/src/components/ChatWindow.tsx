@@ -292,6 +292,44 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       qc.invalidateQueries({ queryKey: ['room-files', roomId] })
     }
 
+    function makeSystemMsg(text: string): Message {
+      return {
+        id: `sys-${Date.now()}-${Math.random()}`,
+        content: text,
+        createdAt: new Date().toISOString(),
+        author: { id: 'system', username: 'system' },
+        reactions: [],
+        attachments: [],
+        system: true,
+      } as any
+    }
+
+    function onMemberJoined({ roomId: rid, username }: { roomId: string; userId: string; username: string }) {
+      if (rid !== roomId) return
+      setMessages(prev => [...prev, makeSystemMsg(`${username} joined the room`)])
+    }
+
+    function onMemberLeft({ roomId: rid, username }: { roomId: string; userId: string; username: string }) {
+      if (rid !== roomId) return
+      setMessages(prev => [...prev, makeSystemMsg(`${username} left the room`)])
+    }
+
+    function onMemberKicked({ roomId: rid, username }: { roomId: string; userId: string; username: string }) {
+      if (rid !== roomId) return
+      setMessages(prev => [...prev, makeSystemMsg(`${username} was removed from the room`)])
+    }
+
+    function onMemberBanned({ roomId: rid, username }: { roomId: string; userId: string; username: string }) {
+      if (rid !== roomId) return
+      setMessages(prev => [...prev, makeSystemMsg(`${username} was banned`)])
+    }
+
+    function onRoomUpdated({ roomId: rid }: { roomId: string }) {
+      if (rid !== roomId) return
+      qc.invalidateQueries({ queryKey: ['room', roomId] })
+      setMessages(prev => [...prev, makeSystemMsg('Room settings were updated')])
+    }
+
     socket.on('room_seq', onRoomSeq)
     socket.on('message', onMessage)
     socket.on('message_edited', onMessageEdited)
@@ -299,6 +337,11 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     socket.on('reaction_updated', onReactionUpdated)
     socket.on('typing', onTyping)
     socket.on('attachment_added', onAttachmentAdded)
+    socket.on('member_joined', onMemberJoined)
+    socket.on('member_left', onMemberLeft)
+    socket.on('member_kicked', onMemberKicked)
+    socket.on('member_banned', onMemberBanned)
+    socket.on('room_updated', onRoomUpdated)
 
     return () => {
       socket.off('room_seq', onRoomSeq)
@@ -308,6 +351,11 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       socket.off('reaction_updated', onReactionUpdated)
       socket.off('typing', onTyping)
       socket.off('attachment_added', onAttachmentAdded)
+      socket.off('member_joined', onMemberJoined)
+      socket.off('member_left', onMemberLeft)
+      socket.off('member_kicked', onMemberKicked)
+      socket.off('member_banned', onMemberBanned)
+      socket.off('room_updated', onRoomUpdated)
     }
   }, [roomId, userId])
 
@@ -512,16 +560,24 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
                       <div className="flex-1 h-px bg-[#f23f42]" />
                     </div>
                   )}
-                  <MessageItem
-                    message={msg}
-                    roomId={roomId}
-                    isAdmin={isAdmin}
-                    isGrouped={grouped}
-                    onReply={() => setReplyTo(msg)}
-                    onDeleted={id => setMessages(prev => prev.filter(m => m.id !== id))}
-                    onEdited={updated => setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))}
-                    onReactionUpdate={handleReactionUpdate}
-                  />
+                  {(msg as any).system ? (
+                    <div className="flex items-center gap-3 px-4 my-1.5">
+                      <div className="flex-1 h-px bg-[#3f4248]/50" />
+                      <span className="text-xs text-[#6b6f78] italic bg-[#313338] px-2 shrink-0">{msg.content}</span>
+                      <div className="flex-1 h-px bg-[#3f4248]/50" />
+                    </div>
+                  ) : (
+                    <MessageItem
+                      message={msg}
+                      roomId={roomId}
+                      isAdmin={isAdmin}
+                      isGrouped={grouped}
+                      onReply={() => setReplyTo(msg)}
+                      onDeleted={id => setMessages(prev => prev.filter(m => m.id !== id))}
+                      onEdited={updated => setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))}
+                      onReactionUpdate={handleReactionUpdate}
+                    />
+                  )}
                 </div>
               )
             })}
