@@ -137,6 +137,106 @@ test.describe('2.5 Messaging', () => {
     await expect(page.locator('p.text-red-400, [class*="red-4"], [class*="error"]').first()).toBeVisible({ timeout: 6_000 })
   })
 
+  test('emoji reaction — add and remove by toggling', async ({ page }) => {
+    const id = uid()
+    await register(page, `react${id}@test.com`, `reactuser${id}`)
+    await createRoom(page, `reactroom-${id}`)
+    await sendMessage(page, `React to this ${id}`)
+
+    // Hover the message row to reveal toolbar
+    const msgRow = page.locator('.group').filter({ hasText: `React to this ${id}` }).last()
+    await msgRow.hover()
+    // Click the first quick reaction emoji (👍)
+    await page.locator('.group').filter({ hasText: `React to this ${id}` }).last()
+      .locator('button').filter({ hasText: '👍' }).first().click()
+    // Reaction chip should appear
+    await expect(page.locator('button').filter({ hasText: '👍' }).last()).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('button').filter({ hasText: '👍' }).last().locator('span')).toBeVisible()
+
+    // Toggle off by clicking the reaction chip
+    await page.locator('button').filter({ hasText: /👍.*1/ }).first().click()
+    // Count should go to 0 and chip should disappear
+    await expect(page.locator('button').filter({ hasText: /👍.*1/ })).toBeHidden({ timeout: 5_000 })
+  })
+
+  test('emoji reaction from another user appears in real time', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `reactA${id}@test.com`, `reactA${id}`)
+    await createRoom(page, `reactrt-${id}`)
+    await sendMessage(page, `Shared msg ${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `reactB${id}@test.com`, `reactB${id}`)
+    await joinRoomFromCatalog(page2, `reactrt-${id}`)
+    await expect(page2.locator(`text=Shared msg ${id}`)).toBeVisible({ timeout: 8_000 })
+
+    // page2 reacts via API
+    const msgId = await page.evaluate(async (roomName: string) => {
+      const rooms = await fetch('/api/rooms?search=' + roomName).then(r => r.json())
+      const roomId = rooms[0]?.id
+      if (!roomId) return null
+      const msgs = await fetch(`/api/rooms/${roomId}/messages`).then(r => r.json())
+      return msgs[msgs.length - 1]?.id
+    }, `reactrt-${id}`)
+
+    const roomId2 = await page2.evaluate(async (name: string) => {
+      const rooms = await fetch('/api/rooms?search=' + name).then(r => r.json())
+      return rooms[0]?.id
+    }, `reactrt-${id}`)
+    await page2.request.post(`/api/rooms/${roomId2}/messages/${msgId}/reactions`, {
+      data: { emoji: '❤️' },
+    })
+
+    // page1 should see the reaction chip
+    await expect(page.locator('button').filter({ hasText: '❤️' }).first()).toBeVisible({ timeout: 8_000 })
+    await ctx2.close()
+  })
+
+  test('typing indicator visible to another user in the room', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `typA${id}@test.com`, `typA${id}`)
+    await createRoom(page, `tyroom-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `typB${id}@test.com`, `typB${id}`)
+    await joinRoomFromCatalog(page2, `tyroom-${id}`)
+
+    // typA starts typing
+    const input = page.locator('textarea[placeholder="Message..."]').first()
+    await input.fill('typing...')
+
+    // typB should see the typing indicator within 3s
+    await expect(page2.locator('text=/typing\\.\\.\\.$/i').first()).toBeVisible({ timeout: 5_000 })
+    await ctx2.close()
+  })
+
+  test('jump-to-bottom button appears when scrolled up', async ({ page }) => {
+    const id = uid()
+    await register(page, `scroll${id}@test.com`, `scrolluser${id}`)
+    await createRoom(page, `scrollroom-${id}`)
+
+    // Send enough messages to allow scrolling
+    for (let i = 0; i < 30; i++) {
+      const input = page.locator('textarea[placeholder="Message..."]').first()
+      await input.fill(`Message line ${i} ${id}`)
+      await input.press('Enter')
+      await page.waitForTimeout(50)
+    }
+
+    // Scroll to top of message area
+    const scrollArea = page.locator('[class*="overflow-y-auto"]').filter({ hasText: `Message line 0 ${id}` }).first()
+    await scrollArea.evaluate(el => el.scrollTop = 0)
+
+    // Jump-to-bottom button should appear
+    await expect(page.locator('[data-testid="jump-to-bottom"]')).toBeVisible({ timeout: 5_000 })
+
+    // Clicking it returns to the bottom
+    await page.locator('[data-testid="jump-to-bottom"]').click()
+    await expect(page.locator('[data-testid="jump-to-bottom"]')).toBeHidden({ timeout: 5_000 })
+  })
+
   test('2.7 unread badge clears when room is opened', async ({ page, browser }) => {
     const id = uid()
     await register(page, `notifier${id}@test.com`, `notifier${id}`)

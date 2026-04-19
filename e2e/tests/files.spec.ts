@@ -114,6 +114,64 @@ test.describe('2.6 Attachments', () => {
     await expect(page.locator('text=pasted.png')).toBeVisible({ timeout: 5_000 })
   })
 
+  test('2.6.3 attachment comment appears in Files panel', async ({ page }) => {
+    const id = uid()
+    await register(page, `cmt${id}@test.com`, `cmtuser${id}`)
+    await createRoom(page, `cmtroom-${id}`)
+
+    const filePath = makeTempFile(`cmt-${id}.txt`, 'content')
+    // Attach file and add a comment
+    const [fc] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button[title="Attach file"]').click(),
+    ])
+    await fc.setFiles(filePath)
+
+    // Fill in the comment field that appears in the file preview
+    await page.locator('input[placeholder="Add a comment (optional)"]').first().fill(`My comment ${id}`)
+    await page.locator('textarea[placeholder="Message..."]').first().press('Enter')
+    await expect(page.locator(`text=cmt-${id}.txt`)).toBeVisible({ timeout: 10_000 })
+
+    // Open Files panel and verify comment is shown
+    await page.locator('button[title="Files"]').first().click()
+    await expect(page.locator(`text=My comment ${id}`).first()).toBeVisible({ timeout: 6_000 })
+
+    fs.unlinkSync(filePath)
+  })
+
+  test('2.6.4 non-member cannot access room file (API returns 403)', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `nmown${id}@test.com`, `nmown${id}`)
+    await createRoom(page, `nmroom-${id}`)
+
+    // Owner uploads a file
+    const filePath = makeTempFile(`nm-${id}.txt`, 'secret content')
+    const [fc] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button[title="Attach file"]').click(),
+    ])
+    await fc.setFiles(filePath)
+    await page.locator('textarea[placeholder="Message..."]').first().press('Enter')
+    await expect(page.locator(`text=nm-${id}.txt`)).toBeVisible({ timeout: 10_000 })
+
+    // Get attachment ID from the Files panel
+    await page.locator('button[title="Files"]').first().click()
+    const fileLink = page.locator(`a:has-text("nm-${id}.txt")`).first()
+    const href = await fileLink.getAttribute('href') ?? ''
+    expect(href).toBeTruthy()
+
+    // A non-member (fresh context, no auth) tries to access the file
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `nmvis${id}@test.com`, `nmvis${id}`)
+    // page2 is NOT a member of nmroom
+    const resp = await page2.request.get(href)
+    expect(resp.status()).toBe(403)
+
+    fs.unlinkSync(filePath)
+    await ctx2.close()
+  })
+
   test('2.6.4 banned member loses file access (API returns 403)', async ({ page, browser }) => {
     test.setTimeout(60_000)
     const id = uid()

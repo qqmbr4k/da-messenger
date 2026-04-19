@@ -114,6 +114,102 @@ test.describe('2.4 Chat Rooms', () => {
     await ctx2.close()
   })
 
+  test('2.4.5 owner cannot leave room — Leave Room button absent in settings', async ({ page }) => {
+    const id = uid()
+    await register(page, `ownlv${id}@test.com`, `ownlvuser${id}`)
+    await createRoom(page, `ownlv-${id}`)
+    await openRoom(page, `ownlv-${id}`)
+
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    // Owner should NOT have a Leave Room button (only Delete Room)
+    await expect(page.locator('button:has-text("Leave Room")')).toBeHidden()
+    await expect(page.locator('button:has-text("Delete Room")')).toBeVisible()
+  })
+
+  test('2.4.5 owner cannot leave via API (returns 403)', async ({ page }) => {
+    const id = uid()
+    await register(page, `ownapi${id}@test.com`, `ownapiuser${id}`)
+    await createRoom(page, `ownapi-${id}`)
+
+    const roomId = await page.evaluate(async (name: string) => {
+      const r = await fetch('/api/rooms?search=' + name)
+      const data = await r.json()
+      return data[0]?.id
+    }, `ownapi-${id}`)
+    const resp = await page.request.post(`/api/rooms/${roomId}/leave`)
+    expect(resp.status()).toBe(403)
+  })
+
+  test('2.4.6 deleting room removes its messages (other users see it gone)', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `delmsown${id}@test.com`, `delmsown${id}`)
+    await createRoom(page, `delms-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `delmsmem${id}@test.com`, `delmsmem${id}`)
+    await joinRoomFromCatalog(page2, `delms-${id}`)
+    await sendMessage(page2, `To be deleted ${id}`)
+    await expect(page2.locator(`text=To be deleted ${id}`)).toBeVisible({ timeout: 6_000 })
+
+    // Owner deletes the room
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    page.once('dialog', d => d.accept())
+    await page.locator('button:has-text("Delete Room")').click()
+    await expect(page.locator(`button:has-text("delms-${id}")`)).toBeHidden({ timeout: 8_000 })
+
+    // The member's view no longer shows the room
+    await expect(page2.locator(`button:has-text("delms-${id}")`)).toBeHidden({ timeout: 8_000 })
+    await ctx2.close()
+  })
+
+  test('room settings — update description', async ({ page }) => {
+    const id = uid()
+    await register(page, `desc${id}@test.com`, `descuser${id}`)
+    await createRoom(page, `descroom-${id}`, 'original description')
+    await openRoom(page, `descroom-${id}`)
+
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    const descInput = page.locator('label:has-text("Description")').locator('..').locator('textarea, input').first()
+    await descInput.clear()
+    await descInput.fill(`updated description ${id}`)
+    await page.locator('button:has-text("Save Changes")').click()
+
+    // Reload and verify description persists
+    await page.reload()
+    await page.locator(`button:has-text("descroom-${id}")`).first().click()
+    await expect(page.locator(`text=updated description ${id}`).first()).toBeVisible({ timeout: 8_000 })
+  })
+
+  test('room settings — change visibility from public to private hides from catalog', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `vis${id}@test.com`, `visuser${id}`)
+    await createRoom(page, `visroom-${id}`, '', false) // start as public
+    await openRoom(page, `visroom-${id}`)
+
+    // Make private
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    await page.locator('label:has-text("Private")').click()
+    await page.locator('button:has-text("Save Changes")').click()
+
+    // Another user cannot see it in the catalog
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `visobs${id}@test.com`, `visobs${id}`)
+    await page2.locator('a[href="/rooms"]').click()
+    await page2.waitForTimeout(2000)
+    await expect(page2.locator(`p:has-text("# visroom-${id}")`)).toBeHidden()
+    await ctx2.close()
+  })
+
   test('room settings — update name', async ({ page }) => {
     const id = uid()
     await register(page, `rename${id}@test.com`, `renameuser${id}`)

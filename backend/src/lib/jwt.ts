@@ -1,5 +1,8 @@
 import jwt from 'jsonwebtoken'
 
+if (!process.env.JWT_SECRET) {
+  console.warn('[WARN] JWT_SECRET env var is not set — using insecure fallback. Set JWT_SECRET in production.')
+}
 const SECRET = process.env.JWT_SECRET || 'supersecretjwtkey_change_in_prod'
 const EXPIRES_IN = '30d'
 

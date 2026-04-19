@@ -531,6 +531,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
 
           {showJumpToBottom && (
             <button
+              data-testid="jump-to-bottom"
               onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
               className="absolute bottom-24 right-4 bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold rounded-full px-3 py-1.5 shadow-lg transition-colors flex items-center gap-1.5 z-10"
             >

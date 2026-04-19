@@ -115,6 +115,111 @@ test.describe('2.3 Contacts / Friends', () => {
     await ctx2.close()
   })
 
+  test('2.3.2 friend request note is visible to recipient', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `noteA${id}@test.com`, `noteA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `noteB${id}@test.com`, `noteB${id}`)
+
+    // Send request with a note via API (UI may not expose this field)
+    const noteMsg = `Hi from noteA ${id}`
+    const resp = await page.request.post('/api/friends/requests', {
+      data: { username: `noteB${id}`, message: noteMsg },
+    })
+    expect(resp.status()).toBe(201)
+
+    // Recipient checks their pending requests via API
+    const reqsResp = await page2.request.get('/api/friends/requests')
+    expect(reqsResp.status()).toBe(200)
+    const { received } = await reqsResp.json()
+    expect(received.length).toBeGreaterThan(0)
+    expect(received[0].message).toBe(noteMsg)
+    await ctx2.close()
+  })
+
+  test('2.3.3 decline friend request — request removed, no friendship created', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `decA${id}@test.com`, `decA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `decB${id}@test.com`, `decB${id}`)
+
+    // Send request
+    await page.request.post('/api/friends/requests', { data: { username: `decB${id}` } })
+
+    // Recipient declines
+    const reqsResp = await page2.request.get('/api/friends/requests')
+    const { received } = await reqsResp.json()
+    const requestId = received[0].id
+    const declineResp = await page2.request.post(`/api/friends/requests/${requestId}/decline`)
+    expect(declineResp.status()).toBe(200)
+
+    // No friendship was created
+    const friendsResp = await page2.request.get('/api/friends')
+    const friends = await friendsResp.json()
+    expect(friends.every((f: any) => f.username !== `decA${id}`)).toBe(true)
+    await ctx2.close()
+  })
+
+  test('2.3.5 user-to-user ban blocks new DM', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `banA${id}@test.com`, `banA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `banB${id}@test.com`, `banB${id}`)
+
+    // Become friends first
+    await page.request.post('/api/friends/requests', { data: { username: `banB${id}` } })
+    const reqs = await page2.request.get('/api/friends/requests')
+    const { received } = await reqs.json()
+    await page2.request.post(`/api/friends/requests/${received[0].id}/accept`)
+
+    // banA bans banB
+    const banBId = await page2.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+    const banResp = await page.request.post('/api/friends/bans', { data: { userId: banBId } })
+    expect(banResp.status()).toBe(200)
+
+    // banB can no longer open DM with banA
+    const banAId = await page.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+    const dmResp = await page2.request.post('/api/directs/open', { data: { userId: banAId } })
+    expect(dmResp.status()).toBe(403)
+    await ctx2.close()
+  })
+
+  test('2.3.5 user-to-user ban terminates friendship', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `bfA${id}@test.com`, `bfA${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `bfB${id}@test.com`, `bfB${id}`)
+
+    // Become friends
+    await page.request.post('/api/friends/requests', { data: { username: `bfB${id}` } })
+    const reqs = await page2.request.get('/api/friends/requests')
+    const { received } = await reqs.json()
+    await page2.request.post(`/api/friends/requests/${received[0].id}/accept`)
+
+    // Confirm they are friends
+    const beforeFriends = await page.request.get('/api/friends')
+    const before = await beforeFriends.json()
+    expect(before.some((f: any) => f.username === `bfB${id}`)).toBe(true)
+
+    // bfA bans bfB
+    const bfBId = await page2.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+    await page.request.post('/api/friends/bans', { data: { userId: bfBId } })
+
+    // Friendship is terminated
+    const afterFriends = await page.request.get('/api/friends')
+    const after = await afterFriends.json()
+    expect(after.every((f: any) => f.username !== `bfB${id}`)).toBe(true)
+    await ctx2.close()
+  })
+
   test('pending friend requests visible in Contacts page', async ({ page, browser }) => {
     test.setTimeout(60_000)
     const id = uid()

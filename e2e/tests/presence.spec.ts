@@ -41,6 +41,69 @@ test.describe('2.2 Presence and Sessions', () => {
     await expect(page.locator('text=/current|this.*session|this.*browser/i').first()).toBeVisible()
   })
 
+  test('2.2.3 user appears offline when their browser context is closed', async ({ browser }) => {
+    const id = uid()
+
+    // Create presA in its own context so we can close it safely mid-test
+    const ctxA = await browser.newContext()
+    const pageA = await ctxA.newPage()
+    await register(pageA, `offlineA${id}@test.com`, `offlineA${id}`)
+    await createRoom(pageA, `offroom-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `offlineB${id}@test.com`, `offlineB${id}`)
+    await joinRoomFromCatalog(page2, `offroom-${id}`)
+
+    // Get presA's user id
+    const presAId = await pageA.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+
+    // Confirm presA is currently online
+    const onlineResp = await page2.request.get(`/api/users/${presAId}/status`)
+    expect(onlineResp.status()).toBe(200)
+    const { status: onlineStatus } = await onlineResp.json()
+    expect(onlineStatus).toBe('online')
+
+    // Close presA's context (simulates all tabs closed)
+    await ctxA.close()
+
+    // Wait for offline propagation (max 10s)
+    await expect(async () => {
+      const r = await page2.request.get(`/api/users/${presAId}/status`)
+      const { status } = await r.json()
+      expect(status).toBe('offline')
+    }).toPass({ timeout: 10_000 })
+
+    await ctx2.close()
+  })
+
+  test('2.2.2 user goes AFK after 60s of inactivity', async ({ page, browser }) => {
+    test.setTimeout(120_000)
+    test.slow()
+    const id = uid()
+    await register(page, `afkA${id}@test.com`, `afkA${id}`)
+    await createRoom(page, `afkroom-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `afkB${id}@test.com`, `afkB${id}`)
+    await joinRoomFromCatalog(page2, `afkroom-${id}`)
+
+    const presAId = await page.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+
+    // Wait 70s without any activity — heartbeat stops → server marks AFK
+    await page.waitForTimeout(70_000)
+
+    // Check status via API
+    await expect(async () => {
+      const r = await page2.request.get(`/api/users/${presAId}/status`)
+      const { status } = await r.json()
+      expect(status).toBe('afk')
+    }).toPass({ timeout: 15_000 })
+
+    await ctx2.close()
+  })
+
   test('2.2.4 can log out a specific session', async ({ page, browser }) => {
     const id = uid()
     const email = `multisess${id}@test.com`

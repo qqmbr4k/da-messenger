@@ -143,6 +143,9 @@ router.patch('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, re
 // DELETE message
 router.delete('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId } = req.params
+  if (!(await assertRoomAccess(roomId, req.userId!))) {
+    res.status(403).json({ error: 'Access denied' }); return
+  }
   const msg = await prisma.message.findUnique({ where: { id: req.params.messageId } })
   if (!msg || msg.deletedAt || msg.roomId !== roomId) { res.status(404).json({ error: 'Message not found' }); return }
 

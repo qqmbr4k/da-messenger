@@ -32,7 +32,7 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await ctx2.close()
   })
 
-  test('kick member — removed but can rejoin public room', async ({ page, browser }) => {
+  test('2.4.8 removing member is treated as ban — cannot rejoin', async ({ page, browser }) => {
     const id = uid()
     await register(page, `kickadm${id}@test.com`, `kickadm${id}`)
     await createRoom(page, `kickroom-${id}`)
@@ -42,19 +42,24 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await register(page2, `kicked${id}@test.com`, `kicked${id}`)
     await joinRoomFromCatalog(page2, `kickroom-${id}`)
 
-    // Admin opens modal and kicks the member
+    // Admin opens modal and bans the member (kick=ban per req 2.4.8)
     await openManageModal(page)
     await clickModalTab(page, 'members')
-    // Wait for member list to load
     await expect(page.locator('[data-testid="manage-room-modal"]').getByText(`kicked${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
-    await clickMemberAction(page, `kicked${id}`, 'Kick')
+    await clickMemberAction(page, `kicked${id}`, 'Ban')
 
-    // Kicked user no longer sees room
+    // Banned user no longer sees room
     await expect(page2.locator(`button:has-text("kickroom-${id}")`)).toBeHidden({ timeout: 8_000 })
 
-    // Kicked user CAN rejoin
-    await joinRoomFromCatalog(page2, `kickroom-${id}`)
-    await expect(page2.locator(`button:has-text("kickroom-${id}")`).first()).toBeVisible()
+    // Banned user CANNOT rejoin — API returns 403
+    const roomId = await page.evaluate(async (name: string) => {
+      const r = await fetch('/api/rooms?search=' + name)
+      const data = await r.json()
+      return data[0]?.id
+    }, `kickroom-${id}`)
+    expect(roomId).toBeTruthy()
+    const joinResp = await page2.request.post(`/api/rooms/${roomId}/join`)
+    expect(joinResp.status()).toBe(403)
     await ctx2.close()
   })
 
@@ -167,7 +172,7 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await ctx2.close()
   })
 
-  test('owner row has no Kick or Ban buttons', async ({ page }) => {
+  test('owner row has no Ban button', async ({ page }) => {
     const id = uid()
     await register(page, `own${id}@test.com`, `ownprct${id}`)
     await createRoom(page, `ownprot-${id}`)
@@ -176,7 +181,36 @@ test.describe('2.4.7 / 2.4.8 Room Moderation', () => {
     await expect(page.locator('[data-testid="manage-room-modal"]').getByText(`ownprct${id}`, { exact: true })).toBeVisible({ timeout: 6_000 })
     const ownerSpan = page.locator('[data-testid="manage-room-modal"]').getByText(`ownprct${id}`, { exact: true })
     const ownerRow = ownerSpan.locator('..')
-    await expect(ownerRow.locator('button:has-text("Kick")')).toBeHidden()
     await expect(ownerRow.locator('button:has-text("Ban")')).toBeHidden()
+  })
+
+  test('non-admin cannot ban a member (API returns 403)', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `naown${id}@test.com`, `naown${id}`)
+    await createRoom(page, `naroom-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `naregular${id}@test.com`, `naregular${id}`)
+    await joinRoomFromCatalog(page2, `naroom-${id}`)
+
+    const ctx3 = await browser.newContext()
+    const page3 = await ctx3.newPage()
+    await register(page3, `natarget${id}@test.com`, `natarget${id}`)
+    await joinRoomFromCatalog(page3, `naroom-${id}`)
+
+    // Get room id
+    const roomId = await page.evaluate(async (name: string) => {
+      const r = await fetch('/api/rooms?search=' + name)
+      const data = await r.json()
+      return data[0]?.id
+    }, `naroom-${id}`)
+    const targetId = await page3.evaluate(() => fetch('/api/auth/me').then(r => r.json()).then(d => d.id))
+
+    // Non-admin (page2) tries to ban target user via API
+    const resp = await page2.request.delete(`/api/rooms/${roomId}/members/${targetId}`)
+    expect(resp.status()).toBe(403)
+    await ctx2.close()
+    await ctx3.close()
   })
 })
