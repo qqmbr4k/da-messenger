@@ -89,6 +89,15 @@ export function setupPresence(io: Server) {
       socket.join(`room:${roomId}`)
       const row = await prisma.roomSeq.findUnique({ where: { roomId } })
       socket.emit('room_seq', { roomId, seq: row ? Number(row.seq) : 0 })
+      // Send current presence state of all room members to this socket
+      const members = await prisma.roomMember.findMany({ where: { roomId }, select: { userId: true } })
+      console.log(`[presence] join_room ${roomId}, members: ${members.length}, userTabsSize: ${userTabs.size}`)
+      for (const { userId: memberId } of members) {
+        const tabs = userTabs.get(memberId)
+        const status = tabs && tabs.size > 0 ? computeUserStatus(tabs) : 'offline'
+        console.log(`[presence] emit to socket: userId=${memberId}, status=${status}, hasTabs=${!!tabs}`)
+        socket.emit('presence', { userId: memberId, status })
+      }
     })
 
     socket.on('leave_room', (roomId: string) => {

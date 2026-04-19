@@ -40,6 +40,34 @@ services:
       retries: 12
       start_period: 30s
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/uploads
+      "
+
   backend:
     build:
       context: ./backend
@@ -56,12 +84,17 @@ services:
       EJABBERD_HOST: ejabberd
       EJABBERD_COMPONENT_PORT: "5275"
       EJABBERD_API_URL: http://ejabberd:5280
-    volumes:
-      - uploads:/uploads
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: uploads
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_REGION: us-east-1
     ports:
       - "4000:4000"
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   frontend:
@@ -104,6 +137,6 @@ networks:
 
 volumes:
   postgres_data:
-  uploads:
+  minio_data:
   ejabberd_data:
   ejabberd_b_data:

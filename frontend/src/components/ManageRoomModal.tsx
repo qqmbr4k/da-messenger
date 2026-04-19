@@ -31,7 +31,7 @@ export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: P
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-[#313338] border border-[#3f4248] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+      <div data-testid="manage-room-modal" className="bg-[#313338] border border-[#3f4248] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#3f4248]">
           <div>
@@ -47,6 +47,7 @@ export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: P
             {(['members', 'admins', 'banned', 'invitations', 'settings'] as Tab[]).map(t => (
               <button
                 key={t}
+                data-testid={`tab-${t}`}
                 onClick={() => setTab(t)}
                 className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm capitalize transition-colors ${
                   tab === t ? 'bg-[#404249] text-white' : 'text-[#949ba4] hover:bg-[#2b2d31] hover:text-[#dce0e8]'
@@ -64,7 +65,7 @@ export default function ManageRoomModal({ room, isOwner, onClose, onDeleted }: P
             {tab === 'admins' && <AdminsTab room={room} isOwner={isOwner} onRefresh={() => qc.invalidateQueries({ queryKey: ['room', room.id] })} />}
             {tab === 'banned' && <BannedTab room={room} />}
             {tab === 'invitations' && <InvitationsTab room={room} />}
-            {tab === 'settings' && <SettingsTab room={room} isOwner={isOwner} onDeleted={onDeleted} onRefresh={() => qc.invalidateQueries({ queryKey: ['room', room.id] })} />}
+            {tab === 'settings' && <SettingsTab room={room} isOwner={isOwner} onDeleted={onDeleted} onRefresh={() => { qc.invalidateQueries({ queryKey: ['room', room.id] }); qc.invalidateQueries({ queryKey: ['my-rooms'] }) }} />}
           </div>
         </div>
       </div>
@@ -77,11 +78,17 @@ function MembersTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean
   const { data } = useQuery<any>({
     queryKey: ['room', room.id],
     queryFn: () => api.get(`/rooms/${room.id}`).then(r => r.data),
+    staleTime: 0,
   })
   const adminIds = new Set((data?.admins || []).map((a: any) => a.userId))
 
+  async function kick(uid: string) { await api.delete(`/rooms/${room.id}/members/${uid}`); onRefresh() }
   async function ban(uid: string) { await api.post(`/rooms/${room.id}/bans`, { userId: uid }); onRefresh() }
   async function makeAdmin(uid: string) { await api.post(`/rooms/${room.id}/admins`, { userId: uid }); onRefresh() }
+
+  const canAct = (memberId: string) =>
+    memberId !== room.ownerId && memberId !== userId &&
+    (isOwner || (adminIds.has(userId!) && !adminIds.has(memberId)))
 
   return (
     <div className="space-y-1">
@@ -101,8 +108,23 @@ function MembersTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean
             {isOwner && m.userId !== userId && m.userId !== room.ownerId && !adminIds.has(m.userId) && (
               <button onClick={() => makeAdmin(m.userId)} className="text-xs text-[#5865f2] hover:underline px-1">+Admin</button>
             )}
-            {(isOwner || (!isOwner && adminIds.has(userId!))) && m.userId !== room.ownerId && m.userId !== userId && (
-              <button onClick={() => ban(m.userId)} className="text-xs text-red-400 hover:underline px-1">Ban</button>
+            {canAct(m.userId) && (
+              <button
+                onClick={() => kick(m.userId)}
+                title="Remove from room — user can rejoin"
+                className="text-xs text-[#f0a032] hover:underline px-1"
+              >
+                Kick
+              </button>
+            )}
+            {canAct(m.userId) && (
+              <button
+                onClick={() => ban(m.userId)}
+                title="Ban — user cannot rejoin unless unbanned"
+                className="text-xs text-red-400 hover:underline px-1"
+              >
+                Ban
+              </button>
             )}
           </div>
         </div>
@@ -115,6 +137,7 @@ function AdminsTab({ room, isOwner, onRefresh }: { room: Room; isOwner: boolean;
   const { data } = useQuery<any>({
     queryKey: ['room', room.id],
     queryFn: () => api.get(`/rooms/${room.id}`).then(r => r.data),
+    staleTime: 0,
   })
 
   async function removeAdmin(uid: string) { await api.delete(`/rooms/${room.id}/admins/${uid}`); onRefresh() }
@@ -143,6 +166,7 @@ function BannedTab({ room }: { room: Room }) {
   const { data = [], refetch } = useQuery<any[]>({
     queryKey: ['room-bans', room.id],
     queryFn: () => api.get(`/rooms/${room.id}/bans`).then(r => r.data),
+    staleTime: 0,
   })
 
   async function unban(uid: string) { await api.delete(`/rooms/${room.id}/bans/${uid}`); refetch() }
@@ -223,7 +247,23 @@ function SettingsTab({ room, isOwner, onDeleted, onRefresh }: {
     onDeleted()
   }
 
-  if (!isOwner) return <p className="text-[#949ba4] text-sm">Only the channel owner can change settings.</p>
+  async function leaveRoom() {
+    if (!confirm('Leave this channel?')) return
+    await api.post(`/rooms/${room.id}/leave`)
+    onDeleted()
+  }
+
+  if (!isOwner) return (
+    <div className="space-y-4">
+      <p className="text-[#949ba4] text-sm">Only the channel owner can change settings.</p>
+      <div className="border-t border-[#3f4248] pt-4">
+        <p className="text-[#949ba4] text-sm mb-3">You can leave this channel at any time.</p>
+        <button onClick={leaveRoom} className="bg-[#383a40] hover:bg-[#4a4d55] text-[#dce0e8] px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+          Leave Channel
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="space-y-5 max-w-sm">

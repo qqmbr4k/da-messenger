@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Routes, Route, useNavigate } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import RoomCatalog from '../components/RoomCatalog'
@@ -12,6 +12,7 @@ import { getSocket } from '../lib/socket'
 import { usePresenceStore } from '../store/presence'
 import { useUnreadStore } from '../store/unread'
 import { useAuthStore } from '../store/auth'
+import { useQueryClient } from '@tanstack/react-query'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useActivityHeartbeat } from '../hooks/useActivityHeartbeat'
 import { Message } from '../lib/types'
@@ -22,8 +23,17 @@ export default function ChatLayout() {
   const { increment, markRead } = useUnreadStore()
   const userId = useAuthStore(s => s.user?.id)
   const navigate = useNavigate()
+  const location = useLocation()
+  const qc = useQueryClient()
 
   useDocumentTitle()
+
+  // Re-join the active room when switching rooms (fetches room_seq for gap-fill)
+  useEffect(() => {
+    const socket = getSocket()
+    if (!activeRoomId) return
+    socket.emit('join_room', activeRoomId)
+  }, [activeRoomId])
 
   const handleTabVisible = useCallback(() => {
     const socket = getSocket()
@@ -35,29 +45,43 @@ export default function ChatLayout() {
   useEffect(() => {
     const socket = getSocket()
 
-    socket.on('presence', ({ userId: uid, status }: { userId: string; status: 'online' | 'afk' | 'offline' }) => {
+    function onPresence({ userId: uid, status }: { userId: string; status: 'online' | 'afk' | 'offline' }) {
+      console.log('[presence] received:', uid, status)
       setStatus(uid, status)
-    })
+    }
 
-    socket.on('message', (msg: Message & { roomId?: string }) => {
+    function onRemovedFromRoom({ roomId }: { roomId: string }) {
+      qc.invalidateQueries({ queryKey: ['my-rooms'] })
+      if (activeRoomId === roomId) {
+        setActiveRoomId(null)
+        navigate('/')
+      }
+    }
+
+    function onMessage(msg: Message & { roomId?: string }) {
       const msgRoomId = (msg as any).roomId as string | undefined
-      if (!msgRoomId || msgRoomId === activeRoomId) return
+      if (!msgRoomId) return
+      // Suppress badge only when actively viewing the room (on main page with room selected)
+      const activelyViewing = location.pathname === '/' && msgRoomId === activeRoomId
+      if (activelyViewing) return
       if (msg.author?.id !== userId) increment(msgRoomId)
-    })
+    }
+
+    socket.on('presence', onPresence)
+    socket.on('removed_from_room', onRemovedFromRoom)
+    socket.on('message', onMessage)
 
     return () => {
-      socket.off('presence')
-      socket.off('message')
+      socket.off('presence', onPresence)
+      socket.off('removed_from_room', onRemovedFromRoom)
+      socket.off('message', onMessage)
     }
-  }, [activeRoomId, userId])
-
-  useEffect(() => {
-    if (activeRoomId) navigate('/')
-  }, [activeRoomId])
+  }, [activeRoomId, userId, location.pathname])
 
   function selectRoom(id: string) {
     setActiveRoomId(id)
     markRead(id, 0)
+    navigate('/')
   }
 
   return (
@@ -67,7 +91,7 @@ export default function ChatLayout() {
       <main className="flex-1 overflow-hidden flex flex-col">
         <Routes>
           <Route path="/" element={activeRoomId
-            ? <ChatWindow roomId={activeRoomId} onRoomDeleted={() => setActiveRoomId(null)} />
+            ? <ChatWindow key={activeRoomId} roomId={activeRoomId} onRoomDeleted={() => setActiveRoomId(null)} />
             : <WelcomeScreen onBrowse={() => navigate('/rooms')} />
           } />
           <Route path="/rooms" element={<RoomCatalog onJoin={selectRoom} />} />

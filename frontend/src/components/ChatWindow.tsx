@@ -134,6 +134,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [unreadDividerSeq, setUnreadDividerSeq] = useState<number | null>(null)
+  const [sendError, setSendError] = useState('')
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -165,12 +166,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
 
   const postWatermark = useCallback((seq: number) => {
     api.post(`/rooms/${roomId}/messages/watermark`, { seq }).catch(() => {})
-  }, [roomId])
-
-  // Reset tab to 'chat' when switching rooms (avoids showing blank content
-  // if previous room had 'members' tab active and new room is a DM)
-  useEffect(() => {
-    setTab('chat')
   }, [roomId])
 
   // Initial load
@@ -223,14 +218,14 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     const socket = getSocket()
     socket.emit('join_room', roomId)
 
-    socket.on('room_seq', ({ roomId: rid, seq }: { roomId: string; seq: number }) => {
+    function onRoomSeq({ roomId: rid, seq }: { roomId: string; seq: number }) {
       if (rid !== roomId) return
       if (seq > localMaxSeq.current && localMaxSeq.current > 0) {
         fillGap(localMaxSeq.current)
       }
-    })
+    }
 
-    socket.on('message', (msg: Message & { roomId?: string }) => {
+    function onMessage(msg: Message & { roomId?: string }) {
       const incomingRoomId = (msg as any).roomId as string | undefined
       if (incomingRoomId && incomingRoomId !== roomId) return
 
@@ -241,7 +236,6 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
         fillGap(localMaxSeq.current)
       }
 
-      // Ensure reactions array exists on incoming messages
       const msgWithReactions = { ...msg, reactions: msg.reactions ?? [] }
 
       setMessages(prev => {
@@ -260,35 +254,41 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       } else {
         if (msg.author?.id !== userId) increment(roomId)
       }
-    })
+    }
 
-    socket.on('message_edited', (msg: unknown) => {
+    function onMessageEdited(msg: unknown) {
       const edited = msg as Message
       setMessages(prev => prev.map(m => m.id === edited.id ? { ...m, ...edited } : m))
-    })
+    }
 
-    socket.on('message_deleted', ({ id }: { id: string }) => {
+    function onMessageDeleted({ id }: { id: string }) {
       setMessages(prev => prev.filter(m => m.id !== id))
-    })
+    }
 
-    socket.on('reaction_updated', ({ messageId, reactions }: { messageId: string; reactions: Reaction[]; roomId: string }) => {
+    function onReactionUpdated({ messageId, reactions }: { messageId: string; reactions: Reaction[]; roomId: string }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m))
-    })
+    }
 
-    socket.on('typing', ({ userId: uid, username }: { userId: string; username: string }) => {
+    function onTyping({ userId: uid, username }: { userId: string; username: string }) {
       if (uid === userId) return
       setTypingUsers(prev => new Set([...prev, username]))
       setTimeout(() => setTypingUsers(prev => { const s = new Set(prev); s.delete(username); return s }), 3000)
-    })
+    }
+
+    socket.on('room_seq', onRoomSeq)
+    socket.on('message', onMessage)
+    socket.on('message_edited', onMessageEdited)
+    socket.on('message_deleted', onMessageDeleted)
+    socket.on('reaction_updated', onReactionUpdated)
+    socket.on('typing', onTyping)
 
     return () => {
-      socket.emit('leave_room', roomId)
-      socket.off('room_seq')
-      socket.off('message')
-      socket.off('message_edited')
-      socket.off('message_deleted')
-      socket.off('reaction_updated')
-      socket.off('typing')
+      socket.off('room_seq', onRoomSeq)
+      socket.off('message', onMessage)
+      socket.off('message_edited', onMessageEdited)
+      socket.off('message_deleted', onMessageDeleted)
+      socket.off('reaction_updated', onReactionUpdated)
+      socket.off('typing', onTyping)
     }
   }, [roomId, userId])
 
@@ -327,10 +327,23 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   }
 
   async function handleSend(content: string, files: File[]) {
+    if (content.length > 3072) {
+      setSendError('Message is too long (max 3 KB)')
+      return
+    }
+    setSendError('')
     const msg = await api.post(`/rooms/${roomId}/messages`, {
       content,
       replyToId: replyTo?.id || null,
     }).then(r => r.data as Message)
+
+    // Add message to state immediately so attachment updates can find it.
+    // The socket dedup (prev.some(m => m.id === msg.id)) prevents double-add.
+    setMessages(prev => {
+      if (prev.some(m => m.id === msg.id)) return prev
+      const withReactions = { ...msg, reactions: msg.reactions ?? [], attachments: msg.attachments ?? [] }
+      return [...prev, withReactions]
+    })
 
     for (const file of files) {
       const form = new FormData()
@@ -338,7 +351,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
       form.append('messageId', msg.id)
       const { data: att } = await api.post(`/rooms/${roomId}/files`, form)
       setMessages(prev => prev.map(m => m.id === msg.id
-        ? { ...m, attachments: [...m.attachments, att] }
+        ? { ...m, attachments: [...(m.attachments ?? []), att] }
         : m
       ))
       qc.invalidateQueries({ queryKey: ['room-files', roomId] })
@@ -504,6 +517,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             </div>
           )}
 
+          {sendError && <p className="text-red-400 text-xs px-4 pb-1">{sendError}</p>}
           <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} />
         </div>
       )}

@@ -1,0 +1,133 @@
+import { test, expect } from '@playwright/test'
+import { uid, register } from '../helpers/auth'
+import { createRoom, openRoom, sendMessage, joinRoomFromCatalog, clickModalTab } from '../helpers/chat'
+
+test.describe('2.4 Chat Rooms', () => {
+  test('create a public room — appears in sidebar', async ({ page }) => {
+    const id = uid()
+    await register(page, `rooms${id}@test.com`, `roomsuser${id}`)
+    await createRoom(page, `pub-${id}`, 'A public test room')
+    await expect(page.locator(`button:has-text("pub-${id}")`).first()).toBeVisible()
+  })
+
+  test('duplicate room name is rejected', async ({ page }) => {
+    const id = uid()
+    await register(page, `uniq${id}@test.com`, `uniquser${id}`)
+    await createRoom(page, `uniq-${id}`)
+
+    // Try to create again with same name
+    await page.locator('text=Channels').first().hover()
+    await page.locator('button[title="Add channels"]').click()
+    await page.locator('input[placeholder="e.g. general"]').fill(`uniq-${id}`)
+    await page.locator('button:has-text("Create Channel")').click()
+    await expect(page.locator('p.text-red-400').first()).toBeVisible({ timeout: 6_000 })
+  })
+
+  test('2.4.3 public room catalog shows rooms with member count', async ({ page }) => {
+    const id = uid()
+    await register(page, `cat${id}@test.com`, `catuser${id}`)
+    await createRoom(page, `catalog-${id}`, 'catalog test')
+
+    await page.locator('a[href="/rooms"]').click()
+    // Use p:has-text to target only catalog rows (sidebar uses spans, not p elements)
+    await expect(page.locator(`p:has-text("# catalog-${id}")`).first()).toBeVisible({ timeout: 8_000 })
+    // Member count visible
+    await expect(page.locator('text=/\\d+ member/i').first()).toBeVisible()
+  })
+
+  test('2.4.3 room catalog search filters results', async ({ page }) => {
+    const id = uid()
+    await register(page, `search${id}@test.com`, `searchuser${id}`)
+    await createRoom(page, `findme-${id}`)
+    await createRoom(page, `other-${id}`)
+
+    await page.locator('a[href="/rooms"]').click()
+    await page.locator('input[placeholder="Search channels..."]').fill(`findme-${id}`)
+    // p:has-text scopes to catalog rows only (not sidebar buttons)
+    await expect(page.locator(`p:has-text("# findme-${id}")`).first()).toBeVisible()
+    await expect(page.locator(`p:has-text("# other-${id}")`)).toBeHidden()
+  })
+
+  test('join a public room from catalog', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `owner${id}@test.com`, `owner${id}`)
+    await createRoom(page, `joinme-${id}`)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `joiner${id}@test.com`, `joiner${id}`)
+    await joinRoomFromCatalog(page2, `joinme-${id}`)
+    await expect(page2.locator(`button:has-text("joinme-${id}")`).first()).toBeVisible()
+    await ctx2.close()
+  })
+
+  test('leave a room (non-owner)', async ({ page, browser }) => {
+    const id = uid()
+    const roomName = `leaveme-${id}`
+
+    // Owner creates the room
+    await register(page, `leaveown${id}@test.com`, `leaveown${id}`)
+    await createRoom(page, roomName)
+
+    // A second user joins
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `leaveuser${id}@test.com`, `leaveuser${id}`)
+    await joinRoomFromCatalog(page2, roomName)
+
+    // Second user opens the manage modal and goes to settings tab
+    await page2.locator('button:has-text("Settings")').first().click()
+    await expect(page2.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page2, 'settings')
+    // Accept the confirm dialog and click Leave Channel
+    page2.once('dialog', d => d.accept())
+    await page2.locator('button:has-text("Leave Channel")').click()
+    await expect(page2.locator(`button:has-text("${roomName}")`)).toBeHidden({ timeout: 8_000 })
+    await ctx2.close()
+  })
+
+  test('2.4.6 delete room removes it from sidebar', async ({ page }) => {
+    const id = uid()
+    await register(page, `del${id}@test.com`, `deluser${id}`)
+    await createRoom(page, `delroom-${id}`)
+    await openRoom(page, `delroom-${id}`)
+
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    page.once('dialog', d => d.accept())
+    await page.locator('button:has-text("Delete Channel")').click()
+    await expect(page.locator(`button:has-text("delroom-${id}")`)).toBeHidden({ timeout: 8_000 })
+  })
+
+  test('private room not visible in catalog to others', async ({ page, browser }) => {
+    const id = uid()
+    await register(page, `priv${id}@test.com`, `privuser${id}`)
+    await createRoom(page, `private-${id}`, 'secret room', true)
+
+    const ctx2 = await browser.newContext()
+    const page2 = await ctx2.newPage()
+    await register(page2, `priv2${id}@test.com`, `privuser2${id}`)
+    await page2.locator('a[href="/rooms"]').click()
+    await page2.waitForTimeout(2000)
+    await expect(page2.locator(`p:has-text("# private-${id}")`)).toBeHidden()
+    await ctx2.close()
+  })
+
+  test('room settings — update name', async ({ page }) => {
+    const id = uid()
+    await register(page, `rename${id}@test.com`, `renameuser${id}`)
+    await createRoom(page, `before-${id}`)
+    await openRoom(page, `before-${id}`)
+
+    await page.locator('button:has-text("Settings")').first().click()
+    await expect(page.locator('[data-testid="manage-room-modal"]')).toBeVisible()
+    await clickModalTab(page, 'settings')
+    // The Channel Name label is followed by the name input
+    const nameInput = page.locator('label:has-text("Channel Name")').locator('..').locator('input')
+    await nameInput.clear()
+    await nameInput.fill(`after-${id}`)
+    await page.locator('button:has-text("Save Changes")').click()
+    await expect(page.locator(`button:has-text("after-${id}")`).first()).toBeVisible({ timeout: 6_000 })
+  })
+})

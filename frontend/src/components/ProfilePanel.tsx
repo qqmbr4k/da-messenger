@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import { useAuthStore } from '../store/auth'
 import { disconnectSocket } from '../lib/socket'
+import { signOut } from '../lib/auth'
 
 function InputField({ type = 'text', placeholder, value, onChange, required }: {
   type?: string; placeholder: string; value: string; onChange: (v: string) => void; required?: boolean
@@ -91,6 +92,18 @@ export default function ProfilePanel() {
               Update Password
             </button>
           </form>
+        </section>
+
+        {/* Sign out */}
+        <section className="bg-[#2b2d31] border border-[#3f4248] rounded-xl p-5">
+          <h2 className="font-bold text-white mb-1">Sign Out</h2>
+          <p className="text-[#949ba4] text-sm mb-4">Log out of this browser session. Other active sessions are not affected.</p>
+          <button
+            onClick={() => signOut(setUser, navigate)}
+            className="bg-[#383a40] hover:bg-[#4a4d55] text-[#dce0e8] px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Sign Out
+          </button>
         </section>
 
         {/* Danger zone */}

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import PresenceDot from './PresenceDot'
 import { useAuthStore } from '../store/auth'
+import { usePresenceStore } from '../store/presence'
 
 interface Member {
   userId: string
@@ -31,11 +32,25 @@ interface UserCard {
 export default function MembersPanel({ roomId }: { roomId: string }) {
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const userId = useAuthStore(s => s.user?.id)
+  const setStatus = usePresenceStore(s => s.setStatus)
 
   const { data: room } = useQuery<Room>({
     queryKey: ['room', roomId],
     queryFn: () => api.get(`/rooms/${roomId}`).then(r => r.data),
   })
+
+  // Seed presence store via HTTP whenever this panel mounts — socket events may arrive
+  // slightly after render and this ensures the initial view shows correct status.
+  const memberIds = room?.members?.map(m => m.userId).join(',') ?? ''
+  useEffect(() => {
+    if (!room?.members?.length) return
+    room.members.forEach(m => {
+      api.get(`/users/${m.userId}/status`).then(r => {
+        setStatus(r.data.userId, r.data.status as 'online' | 'afk' | 'offline')
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberIds])
 
   if (!room) return null
 

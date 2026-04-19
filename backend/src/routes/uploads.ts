@@ -1,22 +1,14 @@
 import { Router, Response, Request, NextFunction } from 'express'
 import multer from 'multer'
 import path from 'path'
-import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import { Readable } from 'stream'
 import prisma from '../lib/prisma'
+import s3, { S3_BUCKET } from '../lib/s3'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname)
-    cb(null, `${uuidv4()}${ext}`)
-  },
-})
-
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
 const router = Router({ mergeParams: true })
 
@@ -28,11 +20,7 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
       return
     }
     if (err) { next(err); return }
-    // Images have a tighter 3MB cap; check after multer writes the file to disk.
-    // (Multer's MIME type is only known mid-stream, so pre-disk rejection would
-    //  require a custom storage engine — not worth it here.)
     if (req.file?.mimetype.startsWith('image/') && req.file.size > 3 * 1024 * 1024) {
-      fs.unlinkSync(req.file.path)
       res.status(413).json({ error: 'Max size: 3MB for images' })
       return
     }
@@ -49,22 +37,35 @@ router.post('/', requireAuth, (req: Request, res: Response, next: NextFunction) 
     where: { userId_roomId: { userId: req.userId!, roomId } },
   })
   if (!member) {
-    fs.unlinkSync(req.file.path)
     res.status(403).json({ error: 'Not a member' })
     return
   }
 
   const { messageId, comment } = req.body
   if (!messageId) {
-    fs.unlinkSync(req.file.path)
     res.status(400).json({ error: 'messageId required' })
+    return
+  }
+
+  const ext = path.extname(req.file.originalname)
+  const s3Key = `${uuidv4()}${ext}`
+
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: s3Key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+    }))
+  } catch {
+    res.status(500).json({ error: 'Storage unavailable' })
     return
   }
 
   const attachment = await prisma.attachment.create({
     data: {
       messageId,
-      filename: req.file.filename,
+      filename: s3Key,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       size: req.file.size,
@@ -93,7 +94,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   res.json(attachments)
 })
 
-// Download file
+// Download file — stream from S3
 router.get('/:attachmentId', requireAuth, async (req: AuthRequest, res: Response) => {
   const attachment = await prisma.attachment.findUnique({
     where: { id: req.params.attachmentId },
@@ -110,13 +111,20 @@ router.get('/:attachmentId', requireAuth, async (req: AuthRequest, res: Response
     res.status(403).json({ error: 'Access denied' })
     return
   }
-  const filePath = path.join(UPLOAD_DIR, attachment.filename)
-  if (!fs.existsSync(filePath)) {
-    res.status(404).json({ error: 'File not found on disk' })
+
+  let s3Res
+  try {
+    s3Res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: attachment.filename }))
+  } catch {
+    res.status(404).json({ error: 'File not found' })
     return
   }
-  res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"`)
-  res.sendFile(filePath)
+  const isInline = attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/') || attachment.mimeType === 'application/pdf'
+  const disposition = isInline ? 'inline' : 'attachment'
+  res.setHeader('Content-Type', attachment.mimeType)
+  res.setHeader('Content-Disposition', `${disposition}; filename="${attachment.originalName}"`)
+  if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength)
+  ;(s3Res.Body as Readable).pipe(res)
 })
 
 export default router
