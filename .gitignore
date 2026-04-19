@@ -42,6 +42,7 @@ ejabberd_data/
 
 # Test coverage
 coverage/
+test-results/
 
 # Editor
 .idea/
