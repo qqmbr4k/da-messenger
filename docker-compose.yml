@@ -30,7 +30,6 @@ services:
     networks:
       default:
         ipv4_address: 172.28.0.10
-    # Lets ejabberd-a find ejabberd-b by its XMPP domain for S2S federation
     extra_hosts:
       - "xmpp-b.localhost:172.28.0.11"
     healthcheck:
@@ -57,17 +56,6 @@ services:
       timeout: 5s
       retries: 10
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   minio-init:
     image: minio/mc:latest
     depends_on:
@@ -78,6 +66,18 @@ services:
         mc alias set local http://minio:9000 minioadmin minioadmin &&
         mc mb --ignore-existing local/uploads
       "
+    restart: "no"
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   backend:
     build:
@@ -107,17 +107,38 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  db-seed:
+    image: postgres:16-alpine
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: chat
+      PGPASSWORD: chat
+      PGDATABASE: chat
+    volumes:
+      - ./backend/scripts/seed.sql:/seed.sql:ro
+      - ./scripts/seed-entrypoint.sh:/seed-entrypoint.sh:ro
+    entrypoint: ["sh", "/seed-entrypoint.sh"]
+    restart: "no"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      VITE_API_URL: http://localhost:4000
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # Second ejabberd instance for federation testing (separate XMPP domain)
   ejabberd-b:
@@ -130,13 +151,12 @@ services:
       - ./ejabberd/ejabberd-b.yml:/opt/ejabberd/conf/ejabberd.yml:ro
       - ejabberd_b_data:/opt/ejabberd/database
     ports:
-      - "5223:5222"   # XMPP c2s on different host port
-      - "5270:5269"   # federation
-      - "5281:5280"   # admin HTTP
+      - "5223:5222"
+      - "5270:5269"
+      - "5281:5280"
     networks:
       default:
         ipv4_address: 172.28.0.11
-    # Lets ejabberd-b find ejabberd-a by its XMPP domain for S2S federation
     extra_hosts:
       - "xmpp.localhost:172.28.0.10"
 

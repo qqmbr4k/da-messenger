@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/auth'
 import { useUnreadStore } from '../store/unread'
 import { Message, Reaction } from '../lib/types'
 import MessageItem from './MessageItem'
-import MessageInput from './MessageInput'
+import MessageInput, { MessageInputHandle } from './MessageInput'
 import MembersPanel from './MembersPanel'
 import ManageRoomModal from './ManageRoomModal'
 import ForwardModal from './ForwardModal'
@@ -157,6 +157,11 @@ export default function ChatWindow({ roomId, onRoomDeleted, initialSeq, initialM
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottomRef = useRef(true)
+  const inputRef = useRef<MessageInputHandle>(null)
+
+  useEffect(() => {
+    if (replyTo) inputRef.current?.focus()
+  }, [replyTo])
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localMaxSeq = useRef<number>(0)
@@ -749,7 +754,7 @@ export default function ChatWindow({ roomId, onRoomDeleted, initialSeq, initialM
           )}
 
           {sendError && <p className={`text-xs px-4 pb-1 ${sendError === 'Message forwarded' ? 'text-green-400' : 'text-red-400'}`}>{sendError}</p>}
-          <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} members={room?.members?.map(m => m.user) ?? []} />
+          <MessageInput ref={inputRef} key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} members={room?.members?.map(m => m.user) ?? []} />
         </div>
 
         {/* Side panel */}

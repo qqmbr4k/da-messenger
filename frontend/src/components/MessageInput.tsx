@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react'
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
+import { searchEmojis } from '../lib/emojiData'
 
 interface FileEntry { file: File; comment: string }
-
 interface Member { id: string; username: string }
 
 interface Props {
@@ -12,6 +12,10 @@ interface Props {
   members?: Member[]
 }
 
+export interface MessageInputHandle {
+  focus: () => void
+}
+
 function getMentionRange(text: string, cursorPos: number): { start: number; query: string } | null {
   const before = text.slice(0, cursorPos)
   const match = before.match(/@(\w*)$/)
@@ -19,7 +23,17 @@ function getMentionRange(text: string, cursorPos: number): { start: number; quer
   return { start: cursorPos - match[0].length, query: match[1] }
 }
 
-export default function MessageInput({ onSend, onTyping, members = [] }: Props) {
+function getEmojiNameRange(text: string, cursorPos: number): { start: number; query: string } | null {
+  const before = text.slice(0, cursorPos)
+  const match = before.match(/:([a-z_]\w*)$/)
+  if (!match || match[1].length < 2) return null
+  return { start: cursorPos - match[0].length, query: match[1] }
+}
+
+const MessageInput = forwardRef<MessageInputHandle, Props>(function MessageInput(
+  { onSend, onTyping, members = [] },
+  ref,
+) {
   const [text, setText] = useState('')
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [showEmoji, setShowEmoji] = useState(false)
@@ -27,8 +41,15 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [emojiNameQuery, setEmojiNameQuery] = useState<string | null>(null)
+  const [emojiNameStart, setEmojiNameStart] = useState(0)
+  const [emojiNameIndex, setEmojiNameIndex] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }))
 
   useEffect(() => {
     const el = textareaRef.current
@@ -41,10 +62,12 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
     ? members.filter(m => m.username.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 8)
     : []
 
+  const emojiSuggestions = emojiNameQuery !== null ? searchEmojis(emojiNameQuery, 8) : []
+
   const insertMention = useCallback((username: string) => {
     const el = textareaRef.current
     if (!el) return
-    const cursorPos = el.selectionStart ?? text.length  // capture before setText re-renders
+    const cursorPos = el.selectionStart ?? text.length
     const newText = text.slice(0, mentionStart) + `@${username} ` + text.slice(cursorPos)
     setText(newText)
     setMentionQuery(null)
@@ -54,6 +77,21 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
       el.setSelectionRange(pos, pos)
     })
   }, [text, mentionStart])
+
+  const insertEmojiByName = useCallback((emoji: string) => {
+    const el = textareaRef.current
+    if (!el) return
+    const cursorPos = el.selectionStart ?? text.length
+    const insertion = emoji + ' '
+    const newText = text.slice(0, emojiNameStart) + insertion + text.slice(cursorPos)
+    setText(newText)
+    setEmojiNameQuery(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      const pos = emojiNameStart + insertion.length
+      el.setSelectionRange(pos, pos)
+    })
+  }, [text, emojiNameStart])
 
   const handleSend = useCallback(async () => {
     if (!text.trim() && entries.length === 0) return
@@ -76,23 +114,39 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
     setText(newText)
     onTyping?.()
     const pos = e.target.selectionStart ?? newText.length
-    const range = getMentionRange(newText, pos)
-    if (range && members.length > 0) {
-      setMentionQuery(range.query)
-      setMentionStart(range.start)
+
+    const mentionRange = getMentionRange(newText, pos)
+    if (mentionRange && members.length > 0) {
+      setMentionQuery(mentionRange.query)
+      setMentionStart(mentionRange.start)
       setMentionIndex(0)
+      setEmojiNameQuery(null)
     } else {
       setMentionQuery(null)
+      const emojiRange = getEmojiNameRange(newText, pos)
+      if (emojiRange) {
+        setEmojiNameQuery(emojiRange.query)
+        setEmojiNameStart(emojiRange.start)
+        setEmojiNameIndex(0)
+      } else {
+        setEmojiNameQuery(null)
+      }
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    // Mention dropdown navigation
     if (mentionQuery !== null && filteredMembers.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % filteredMembers.length); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + filteredMembers.length) % filteredMembers.length); return }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredMembers[mentionIndex].username); return }
       if (e.key === 'Escape') { setMentionQuery(null); return }
+    }
+
+    if (emojiNameQuery !== null && emojiSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setEmojiNameIndex(i => (i + 1) % emojiSuggestions.length); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setEmojiNameIndex(i => (i - 1 + emojiSuggestions.length) % emojiSuggestions.length); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertEmojiByName(emojiSuggestions[emojiNameIndex].emoji); return }
+      if (e.key === 'Escape') { setEmojiNameQuery(null); return }
     }
 
     if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); wrapSelection('**') }
@@ -133,7 +187,10 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
   const canSend = (text.trim().length > 0 || entries.length > 0) && !sending
 
   return (
-    <div className="px-4 pb-4 pt-0 shrink-0 relative" onClick={() => { setShowEmoji(false); setMentionQuery(null) }}>
+    <div
+      className="px-4 pb-4 pt-0 shrink-0 relative"
+      onClick={() => { setShowEmoji(false); setMentionQuery(null); setEmojiNameQuery(null) }}
+    >
       {/* @mention autocomplete dropdown */}
       {mentionQuery !== null && filteredMembers.length > 0 && (
         <div
@@ -157,6 +214,40 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
               <span className="font-medium">@{m.username}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* :emoji: autocomplete dropdown */}
+      {emojiNameQuery !== null && emojiSuggestions.length > 0 && (
+        <div
+          className="absolute bottom-full mb-1 left-4 right-4 bg-[#111214] border border-[#3f4248] rounded-lg shadow-2xl overflow-hidden z-50"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[11px] text-[#6b6f78] font-semibold uppercase tracking-wide border-b border-[#1e1f22]">
+            Emoji matching :{emojiNameQuery}
+          </div>
+          {emojiSuggestions.map((s, i) => (
+            <button
+              key={s.name}
+              onMouseDown={e => { e.preventDefault(); insertEmojiByName(s.emoji) }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                i === emojiNameIndex ? 'bg-[#5865f2]/20 text-white' : 'text-[#dce0e8] hover:bg-[#3f4248]'
+              }`}
+            >
+              <span className="text-xl w-7 text-center shrink-0">{s.emoji}</span>
+              <span className="font-medium text-[#949ba4]">:{s.name}:</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Emoji picker — rendered outside overflow-hidden so it's never clipped */}
+      {showEmoji && (
+        <div
+          className="absolute bottom-full mb-2 left-4 z-50"
+          onClick={e => e.stopPropagation()}
+        >
+          <EmojiPicker onEmojiClick={handleEmojiClick} theme={'dark' as any} />
         </div>
       )}
 
@@ -220,19 +311,12 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
               }}
             />
 
-            {/* Emoji */}
-            <div className="relative">
-              <ToolbarButton onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }} title="Emoji">
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </ToolbarButton>
-              {showEmoji && (
-                <div className="absolute bottom-10 left-0 z-50" onClick={e => e.stopPropagation()}>
-                  <EmojiPicker onEmojiClick={handleEmojiClick} theme={'dark' as any} />
-                </div>
-              )}
-            </div>
+            {/* Emoji toggle — picker is rendered outside overflow-hidden above */}
+            <ToolbarButton onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }} title="Emoji">
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </ToolbarButton>
 
             <div className="w-px h-4 bg-[#4a4d55] mx-1" />
 
@@ -273,7 +357,9 @@ export default function MessageInput({ onSend, onTyping, members = [] }: Props) 
       </div>
     </div>
   )
-}
+})
+
+export default MessageInput
 
 function ToolbarButton({ title, onClick, children }: { title: string; onClick: (e: React.MouseEvent) => void; children: React.ReactNode }) {
   return (

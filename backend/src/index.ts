@@ -30,11 +30,19 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
+// Allow localhost and any 192.168.x.x / 10.x.x.x LAN origin on the same port
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$/
+
+function corsOrigin(origin: string | undefined, cb: (err: Error | null, ok?: boolean) => void) {
+  if (!origin || origin === FRONTEND_URL || LOCAL_ORIGIN.test(origin)) return cb(null, true)
+  cb(new Error(`CORS: origin ${origin} not allowed`))
+}
+
 const io = new Server(server, {
-  cors: { origin: FRONTEND_URL, credentials: true },
+  cors: { origin: corsOrigin, credentials: true },
 })
 
-app.use(cors({ origin: FRONTEND_URL, credentials: true }))
+app.use(cors({ origin: corsOrigin, credentials: true }))
 app.use(cookieParser())
 app.use(express.json())
 app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); next() })
@@ -44,6 +52,8 @@ app.use((req: express.Request & { io?: Server }, _res, next) => {
   req.io = io
   next()
 })
+
+app.get('/healthz', (_req, res) => { res.send('ok') })
 
 app.use('/api/auth', authRouter)
 app.use('/api/rooms', roomsRouter)
