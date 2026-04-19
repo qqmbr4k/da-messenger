@@ -1,6 +1,7 @@
 # DAMessenger
 
 A full-featured real-time chat app — Slack-style UI, WebRTC calls, full-text search, XMPP/Jabber bridge, and a massive pre-loaded dataset for realistic testing.
+Check out [ARCHITECTURE](docs/ARCHITECTURE.md) and [FEATURES](docs/FEATURES.md).
 
 ---
 
