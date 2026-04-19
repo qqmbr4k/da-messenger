@@ -64,15 +64,29 @@ Browser ──WebSocket──▶ Node.js/Express + Socket.io ──▶ PostgreSQ
                           ejabberd-b (--profile federation)
 ```
 
-| Service    | Port | Description |
-|------------|------|-------------|
-| frontend   | 3000 | Vite/React SPA |
-| backend    | 4000 | Express REST + Socket.io |
-| postgres   | 5432 | PostgreSQL 16 |
-| ejabberd   | 5222 | XMPP c2s (Jabber clients) |
-| ejabberd   | 5269 | XMPP s2s (federation) |
-| ejabberd   | 5275 | XEP-0114 component (bridge) |
-| ejabberd   | 5280 | ejabberd HTTP admin API |
+| Service    | Port | Credentials | Description |
+|------------|------|-------------|-------------|
+| frontend   | 3000 | register any account | Vite/React SPA |
+| backend    | 4000 | — | Express REST + Socket.io |
+| postgres   | 5432 | `chat` / `chat` | PostgreSQL 16 |
+| pgadmin    | 5050 | `admin@admin.com` / `admin` | Database GUI |
+| minio      | 9001 | `minioadmin` / `minioadmin` | Object storage console |
+| ejabberd   | 5222 | — | XMPP c2s (Jabber clients) |
+| ejabberd   | 5269 | — | XMPP s2s (federation) |
+| ejabberd   | 5275 | — | XEP-0114 component (bridge) |
+| ejabberd   | 5280 | — | ejabberd HTTP admin API |
+
+## pgAdmin — connect to the database
+
+1. Open http://localhost:5050 and log in with `admin@admin.com` / `admin`
+2. Click **Add New Server**
+3. Fill in:
+   - **Name:** `da-messenger`
+   - **Host:** `postgres`
+   - **Port:** `5432`
+   - **Database:** `chat`
+   - **Username:** `chat`
+   - **Password:** `chat`
 
 ## Federation (two XMPP servers)
 

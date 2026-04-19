@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
+import SearchModal from '../components/SearchModal'
 import RoomCatalog from '../components/RoomCatalog'
 import ContactsPanel from '../components/ContactsPanel'
 import SessionsPanel from '../components/SessionsPanel'
@@ -21,6 +22,8 @@ import { Message } from '../lib/types'
 
 export default function ChatLayout() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
+  const [showSearch, setShowSearch] = useState(false)
+  const [jumpTarget, setJumpTarget] = useState<{ seq: number | null; msgId: string; key: number } | null>(null)
   const setStatus = usePresenceStore(s => s.setStatus)
   const { increment, markRead } = useUnreadStore()
   const userId = useAuthStore(s => s.user?.id)
@@ -137,15 +140,43 @@ export default function ChatLayout() {
     navigate('/')
   }
 
+  function handleSearchNavigate(roomId: string, seq: number | null, messageId: string) {
+    setActiveRoomId(roomId)
+    markRead(roomId, 0)
+    setJumpTarget({ seq, msgId: messageId, key: Date.now() })
+    navigate('/')
+  }
+
+  // ⌘K / Ctrl+K to open search
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearch(v => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div className="flex h-screen bg-[#313338] overflow-hidden">
       <NotificationToast />
       <CallModal />
-      <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} />
+      {showSearch && (
+        <SearchModal onClose={() => setShowSearch(false)} onNavigate={handleSearchNavigate} />
+      )}
+      <Sidebar activeRoomId={activeRoomId} onSelectRoom={selectRoom} onOpenSearch={() => setShowSearch(true)} />
       <main className="flex-1 overflow-hidden flex flex-col">
         <Routes>
           <Route path="/" element={activeRoomId
-            ? <ChatWindow key={activeRoomId} roomId={activeRoomId} onRoomDeleted={() => setActiveRoomId(null)} />
+            ? <ChatWindow
+                key={`${activeRoomId}-${jumpTarget?.key ?? 0}`}
+                roomId={activeRoomId}
+                initialSeq={jumpTarget?.seq ?? undefined}
+                initialMsgId={jumpTarget?.msgId ?? undefined}
+                onRoomDeleted={() => { setActiveRoomId(null); setJumpTarget(null) }}
+              />
             : <WelcomeScreen onBrowse={() => navigate('/rooms')} />
           } />
           <Route path="/rooms" element={<RoomCatalog onJoin={selectRoom} />} />

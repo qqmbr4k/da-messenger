@@ -31,6 +31,7 @@ export default function ForwardModal({ message, currentRoomId, onClose, onForwar
   const { data: rooms = [] } = useQuery<Room[]>({
     queryKey: ['my-rooms'],
     queryFn: () => api.get('/rooms/my').then(r => r.data),
+    staleTime: 60_000,
   })
 
   const filtered = rooms

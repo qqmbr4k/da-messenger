@@ -9,7 +9,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push",
     "test": "vitest run --reporter=verbose tests/",
-    "test:watch": "vitest tests/"
+    "test:watch": "vitest tests/",
+    "seed": "docker compose exec -T postgres psql -U chat -d chat < scripts/seed.sql"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1032.0",

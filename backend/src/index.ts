@@ -14,6 +14,7 @@ import usersRouter from './routes/users'
 import directsRouter from './routes/directs'
 import { setupPresence } from './services/presence'
 import xmppRouter from './routes/xmpp'
+import searchRouter from './routes/search'
 import { xmppBridge } from './xmpp/bridge'
 
 if (process.env.JWT_SECRET === undefined || process.env.JWT_SECRET === 'supersecretjwtkey_change_in_prod') {
@@ -52,6 +53,7 @@ app.use('/api/friends', friendsRouter)
 app.use('/api/users', usersRouter)
 app.use('/api/directs', directsRouter)
 app.use('/api/xmpp', xmppRouter)
+app.use('/api/search', searchRouter)
 
 setupPresence(io)
 

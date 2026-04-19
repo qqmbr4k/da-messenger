@@ -39,6 +39,8 @@ interface Attachment {
 interface Props {
   roomId: string
   onRoomDeleted: () => void
+  initialSeq?: number
+  initialMsgId?: string
 }
 
 function formatDividerDate(date: Date): string {
@@ -137,7 +139,7 @@ function FilesPanel({ roomId }: { roomId: string }) {
 // ChatWindow
 // ──────────────────────────────────────────────
 
-export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
+export default function ChatWindow({ roomId, onRoomDeleted, initialSeq, initialMsgId }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [forwardMsg, setForwardMsg] = useState<Message | null>(null)
@@ -147,6 +149,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const [showManage, setShowManage] = useState(false)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [showJumpToPresent, setShowJumpToPresent] = useState(false)
   const [unreadDividerSeq, setUnreadDividerSeq] = useState<number | null>(null)
   const [sendError, setSendError] = useState('')
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null)
@@ -155,6 +158,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottomRef = useRef(true)
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localMaxSeq = useRef<number>(0)
   const initialLoadDone = useRef(false)
 
@@ -189,29 +193,49 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     setReplyTo(null)
     setUnreadDividerSeq(null)
     setPanel('none')
+    if (highlightTimer.current) { clearTimeout(highlightTimer.current); highlightTimer.current = null }
+    setHighlightedMsgId(null)
     localMaxSeq.current = 0
     initialLoadDone.current = false
 
     const lastSeen = getLastSeq(roomId)
 
-    fetchMessages({ limit: 50 }).then(msgs => {
-      setMessages(msgs)
-      setHasMore(msgs.length === 50)
-      if (msgs.length > 0) {
-        const maxSeq = Math.max(...msgs.map(m => m.seq ?? 0))
-        localMaxSeq.current = maxSeq
-
-        if (lastSeen > 0 && lastSeen < maxSeq) {
-          const firstUnread = msgs.find(m => (m.seq ?? 0) > lastSeen)
-          if (firstUnread) setUnreadDividerSeq(firstUnread.seq ?? null)
+    if (initialSeq) {
+      // Load 30 messages ending at (and including) the target seq
+      fetchMessages({ beforeSeq: initialSeq + 1, limit: 30 }).then(msgs => {
+        setMessages(msgs)
+        setHasMore(msgs.length === 30)
+        if (msgs.length > 0) {
+          localMaxSeq.current = Math.max(...msgs.map(m => m.seq ?? 0))
         }
+        initialLoadDone.current = true
+        setShowJumpToPresent(true)  // we're viewing historical, not the latest
+        const targetId = initialMsgId ?? msgs.find(m => m.seq === initialSeq)?.id
+        setTimeout(() => {
+          if (targetId) scrollToMessage(targetId)
+          else bottomRef.current?.scrollIntoView()
+        }, 100)
+      })
+    } else {
+      fetchMessages({ limit: 30 }).then(msgs => {
+        setMessages(msgs)
+        setHasMore(msgs.length === 30)
+        if (msgs.length > 0) {
+          const maxSeq = Math.max(...msgs.map(m => m.seq ?? 0))
+          localMaxSeq.current = maxSeq
 
-        markRead(roomId, maxSeq)
-        postWatermark(maxSeq)
-      }
-      initialLoadDone.current = true
-      setTimeout(() => bottomRef.current?.scrollIntoView(), 50)
-    })
+          if (lastSeen > 0 && lastSeen < maxSeq) {
+            const firstUnread = msgs.find(m => (m.seq ?? 0) > lastSeen)
+            if (firstUnread) setUnreadDividerSeq(firstUnread.seq ?? null)
+          }
+
+          markRead(roomId, maxSeq)
+          postWatermark(maxSeq)
+        }
+        initialLoadDone.current = true
+        setTimeout(() => bottomRef.current?.scrollIntoView(), 50)
+      })
+    }
   }, [roomId])
 
   const fillGap = useCallback(async (fromSeq: number) => {
@@ -378,17 +402,23 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     }
 
     if (el.scrollTop < 150 && hasMore && !loadingMore) {
-      const oldestSeq = messages[0]?.seq ?? undefined
-      if (!oldestSeq) return
-      setLoadingMore(true)
-      const prevHeight = el.scrollHeight
-      fetchMessages({ beforeSeq: oldestSeq, limit: 50 }).then(older => {
-        setMessages(prev => [...older, ...prev])
-        setHasMore(older.length === 50)
-        setLoadingMore(false)
-        requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - prevHeight })
-      })
+      loadOlderMessages()
     }
+  }
+
+  function loadOlderMessages() {
+    const el = scrollRef.current
+    if (!el || !hasMore || loadingMore) return
+    const oldestSeq = messages[0]?.seq ?? undefined
+    if (!oldestSeq) return
+    setLoadingMore(true)
+    const prevHeight = el.scrollHeight
+    fetchMessages({ beforeSeq: oldestSeq, limit: 30 }).then(older => {
+      setMessages(prev => [...older, ...prev])
+      setHasMore(older.length === 30)
+      setLoadingMore(false)
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - prevHeight })
+    })
   }
 
   function handleTyping() {
@@ -444,8 +474,9 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     const el = scrollRef.current?.querySelector(`[data-message-id="${messageId}"]`)
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (highlightTimer.current) clearTimeout(highlightTimer.current)
       setHighlightedMsgId(messageId)
-      setTimeout(() => setHighlightedMsgId(null), 1500)
+      highlightTimer.current = setTimeout(() => setHighlightedMsgId(null), 1500)
     } else {
       setSendError('Original message is not loaded — scroll up to find it')
       setTimeout(() => setSendError(''), 3000)
@@ -456,6 +487,11 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
     if (!forwardMsg) return
     await api.post(`/rooms/${roomId}/messages/${forwardMsg.id}/forward`, { targetRoomId })
     setForwardMsg(null)
+    setSendError('')
+    // Brief success feedback reusing the error slot with a neutral colour class swap handled by green text below
+    const msg = 'Message forwarded'
+    setSendError(msg)
+    setTimeout(() => setSendError(prev => prev === msg ? '' : prev), 2000)
   }
 
   function togglePanel(p: Panel) {
@@ -566,8 +602,16 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             onScroll={handleScroll}
             className="flex-1 overflow-y-auto py-4 space-y-0"
           >
-            {loadingMore && (
-              <div className="text-center text-xs text-[#6b6f78] py-3">Loading older messages...</div>
+            {hasMore && (
+              <div className="flex justify-center py-3">
+                <button
+                  onClick={loadOlderMessages}
+                  disabled={loadingMore}
+                  className="text-xs text-[#5865f2] hover:text-[#7289da] disabled:opacity-50 px-4 py-1.5 rounded-full border border-[#5865f2]/30 hover:border-[#5865f2] transition-colors"
+                >
+                  {loadingMore ? 'Loading…' : '↑ Load older messages'}
+                </button>
+              </div>
             )}
             {!hasMore && messages.length > 0 && (
               <div className="px-4 py-6 mb-2">
@@ -651,6 +695,26 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             <div ref={bottomRef} className="h-4" />
           </div>
 
+          {showJumpToPresent && (
+            <button
+              onClick={() => {
+                setShowJumpToPresent(false)
+                fetchMessages({ limit: 30 }).then(msgs => {
+                  setMessages(msgs)
+                  setHasMore(msgs.length === 30)
+                  if (msgs.length > 0) localMaxSeq.current = Math.max(...msgs.map(m => m.seq ?? 0))
+                  setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+                })
+              }}
+              className="absolute bottom-32 right-4 bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold rounded-full px-3 py-1.5 shadow-lg transition-colors flex items-center gap-1.5 z-10"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 15l-7-7-7 7" />
+              </svg>
+              Jump to present
+            </button>
+          )}
+
           {showJumpToBottom && (
             <button
               data-testid="jump-to-bottom"
@@ -684,7 +748,7 @@ export default function ChatWindow({ roomId, onRoomDeleted }: Props) {
             </div>
           )}
 
-          {sendError && <p className="text-red-400 text-xs px-4 pb-1">{sendError}</p>}
+          {sendError && <p className={`text-xs px-4 pb-1 ${sendError === 'Message forwarded' ? 'text-green-400' : 'text-red-400'}`}>{sendError}</p>}
           <MessageInput key={roomId} onSend={handleSend} roomId={roomId} onTyping={handleTyping} members={room?.members?.map(m => m.user) ?? []} />
         </div>
 

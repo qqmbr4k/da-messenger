@@ -5,6 +5,22 @@ import { useCallStore } from '../store/call'
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  // Free TURN relay — fallback for symmetric NAT / firewalled networks
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ]
 
 export default function CallModal() {
@@ -12,15 +28,20 @@ export default function CallModal() {
 
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const remoteStreamRef = useRef<MediaStream>(new MediaStream())
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const iceCandidateBuffer = useRef<RTCIceCandidateInit[]>([])
   const remoteDescSet = useRef(false)
+  // Keep a stable ref to hangUp so PC event handlers never go stale
+  const hangUpRef = useRef<(notify?: boolean) => void>(() => {})
 
   const [micMuted, setMicMuted] = useState(false)
   const [camOff, setCamOff] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [callError, setCallError] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const socket = getSocket()
 
@@ -30,12 +51,17 @@ export default function CallModal() {
     pcRef.current = null
     localStreamRef.current?.getTracks().forEach(t => t.stop())
     localStreamRef.current = null
+    // Replace the remote stream (don't reuse the old one)
+    remoteStreamRef.current = new MediaStream()
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
     remoteDescSet.current = false
     iceCandidateBuffer.current = []
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (errorTimerRef.current) { clearTimeout(errorTimerRef.current); errorTimerRef.current = null }
     setElapsed(0)
     setMicMuted(false)
     setCamOff(false)
+    setCallError(null)
   }, [])
 
   const hangUp = useCallback((notify = true) => {
@@ -44,14 +70,25 @@ export default function CallModal() {
     reset()
   }, [remoteUserId, cleanup, reset, socket])
 
+  // Keep the ref in sync so PC event handlers always call the latest hangUp
+  useEffect(() => { hangUpRef.current = hangUp }, [hangUp])
+
   // ── get local media ────────────────────────────────────────────────────────
   const getLocalStream = useCallback(async (video: boolean): Promise<MediaStream> => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video })
     localStreamRef.current = stream
     if (localVideoRef.current && video) {
       localVideoRef.current.srcObject = stream
+      localVideoRef.current.play().catch(() => {})
     }
     return stream
+  }, [])
+
+  // ── attach remote stream to video element ─────────────────────────────────
+  const attachRemoteStream = useCallback(() => {
+    if (!remoteVideoRef.current) return
+    remoteVideoRef.current.srcObject = remoteStreamRef.current
+    remoteVideoRef.current.play().catch(() => {})
   }, [])
 
   // ── create peer connection ─────────────────────────────────────────────────
@@ -59,35 +96,59 @@ export default function CallModal() {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
     pcRef.current = pc
 
+    // Suppress renegotiation — we manage offer/answer manually
+    pc.onnegotiationneeded = () => {}
+
     pc.onicecandidate = e => {
       if (e.candidate) socket.emit('call_ice', { to: targetId, candidate: e.candidate.toJSON() })
     }
 
     pc.ontrack = e => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0] ?? null
-      }
+      // Robust: add the individual track to our own MediaStream.
+      // Never rely on e.streams[0] which can be undefined in some browsers/configs.
+      remoteStreamRef.current.addTrack(e.track)
+      attachRemoteStream()
     }
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         set({ status: 'connected' })
-        timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
+        if (!timerRef.current) timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
       }
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        hangUp(false)
+      if (pc.connectionState === 'connecting' || pc.connectionState === 'new') {
+        set({ status: 'connecting' })
       }
+      if (pc.connectionState === 'failed') hangUpRef.current(false)
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        set({ status: 'connected' })
+        if (!timerRef.current) timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
+      }
+      if (pc.iceConnectionState === 'checking') {
+        set({ status: 'connecting' })
+      }
+      if (pc.iceConnectionState === 'disconnected') {
+        // Give the browser 4 s to self-recover before tearing down
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            hangUpRef.current(false)
+          }
+        }, 4000)
+      }
+      if (pc.iceConnectionState === 'failed') hangUpRef.current(false)
     }
 
     return pc
-  }, [socket, set, hangUp])
+  }, [socket, set, attachRemoteStream])
 
   const flushIceBuffer = useCallback(async (pc: RTCPeerConnection) => {
-    for (const c of iceCandidateBuffer.current) {
+    remoteDescSet.current = true
+    const queued = iceCandidateBuffer.current.splice(0)
+    for (const c of queued) {
       await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {})
     }
-    iceCandidateBuffer.current = []
-    remoteDescSet.current = true
   }, [])
 
   // ── initiate outgoing call ─────────────────────────────────────────────────
@@ -100,10 +161,16 @@ export default function CallModal() {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       socket.emit('call_offer', { to: remoteUserId, signal: offer, isVideo })
-    } catch {
-      hangUp(true)
+    } catch (err) {
+      const msg = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Microphone/camera access denied'
+        : err instanceof DOMException && err.name === 'NotFoundError'
+          ? 'No microphone/camera found'
+          : 'Failed to start call'
+      setCallError(msg)
+      errorTimerRef.current = setTimeout(() => hangUpRef.current(true), 2000)
     }
-  }, [remoteUserId, isVideo, socket, hangUp, createPeer, getLocalStream])
+  }, [remoteUserId, isVideo, socket, createPeer, getLocalStream])
 
   // ── answer incoming call ───────────────────────────────────────────────────
   const answerCall = useCallback(async () => {
@@ -118,31 +185,38 @@ export default function CallModal() {
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       socket.emit('call_answer', { to: remoteUserId, signal: answer })
-    } catch {
-      hangUp(true)
+    } catch (err) {
+      const msg = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Microphone/camera access denied'
+        : err instanceof DOMException && err.name === 'NotFoundError'
+          ? 'No microphone/camera found'
+          : 'Failed to connect'
+      setCallError(msg)
+      errorTimerRef.current = setTimeout(() => hangUpRef.current(true), 2000)
     }
-  }, [remoteUserId, incomingSignal, isVideo, socket, hangUp, set, createPeer, getLocalStream, flushIceBuffer])
+  }, [remoteUserId, incomingSignal, isVideo, socket, set, createPeer, getLocalStream, flushIceBuffer])
 
   // ── socket event handlers ──────────────────────────────────────────────────
   useEffect(() => {
     async function onAnswer({ signal }: { from: string; signal: RTCSessionDescriptionInit }) {
       if (!pcRef.current) return
+      set({ status: 'connecting' })
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal))
       await flushIceBuffer(pcRef.current)
     }
 
     function onIce({ candidate }: { from: string; candidate: RTCIceCandidateInit }) {
-      if (!pcRef.current || !candidate) return
-      if (remoteDescSet.current) {
+      if (!candidate) return
+      if (pcRef.current && remoteDescSet.current) {
         pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {})
       } else {
         iceCandidateBuffer.current.push(candidate)
       }
     }
 
-    function onEnd() { hangUp(false) }
-    function onReject() { hangUp(false) }
-    function onBusy() { hangUp(false) }
+    function onEnd() { hangUpRef.current(false) }
+    function onReject() { hangUpRef.current(false) }
+    function onBusy() { hangUpRef.current(false) }
 
     socket.on('call_answer', onAnswer)
     socket.on('call_ice', onIce)
@@ -157,14 +231,13 @@ export default function CallModal() {
       socket.off('call_reject', onReject)
       socket.off('call_busy', onBusy)
     }
-  }, [socket, hangUp, flushIceBuffer])
+    // hangUp accessed via ref; set is a stable zustand action
+  }, [socket, flushIceBuffer, set])
 
-  // start outgoing call when status transitions to 'calling'
   useEffect(() => {
     if (status === 'calling') startCall()
   }, [status, startCall])
 
-  // cleanup when unmounted
   useEffect(() => () => { cleanup() }, [cleanup])
 
   // ── mic / camera toggles ───────────────────────────────────────────────────
@@ -194,31 +267,38 @@ export default function CallModal() {
 
         {/* Remote video / avatar area */}
         <div className="relative bg-[#111214] aspect-video flex items-center justify-center">
+          {/* Remote video — always rendered so srcObject works for audio too */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
             data-testid="remote-video"
-            className={`absolute inset-0 w-full h-full object-cover ${status !== 'connected' ? 'opacity-0' : ''}`}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+              status === 'connected' && isVideo ? 'opacity-100' : 'opacity-0'
+            }`}
           />
 
-          {/* Avatar placeholder when no video or not yet connected */}
-          {(status !== 'connected' || !isVideo) && (
-            <div className="flex flex-col items-center gap-4 z-10">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-4xl font-bold text-white shadow-xl">
-                {remoteUsername?.[0]?.toUpperCase() ?? '?'}
-              </div>
-              <p className="text-white text-xl font-semibold">{remoteUsername}</p>
+          {/* Avatar shown when not yet connected OR in voice-only call */}
+          <div className={`flex flex-col items-center gap-4 z-10 transition-opacity duration-300 ${
+            status === 'connected' && isVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}>
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#5865f2] to-violet-600 flex items-center justify-center text-4xl font-bold text-white shadow-xl">
+              {remoteUsername?.[0]?.toUpperCase() ?? '?'}
+            </div>
+            <p className="text-white text-xl font-semibold">{remoteUsername}</p>
+            {callError ? (
+              <p className="text-red-400 text-sm font-medium">{callError}</p>
+            ) : (
               <p className="text-[#949ba4] text-sm animate-pulse">
                 {status === 'calling' ? 'Ringing…'
                   : status === 'receiving' ? 'Incoming call…'
                   : status === 'connecting' ? 'Connecting…'
                   : formatTime(elapsed)}
               </p>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Local video (picture-in-picture) */}
+          {/* Local video PiP */}
           {isVideo && (
             <video
               ref={localVideoRef}
@@ -230,9 +310,12 @@ export default function CallModal() {
             />
           )}
 
-          {/* Connected timer badge */}
+          {/* Timer badge */}
           {status === 'connected' && (
-            <div className="absolute top-3 left-3 bg-black/50 rounded-full px-3 py-1 text-green-400 text-xs font-mono z-20" data-testid="call-timer">
+            <div
+              className="absolute top-3 left-3 bg-black/50 rounded-full px-3 py-1 text-green-400 text-xs font-mono z-20"
+              data-testid="call-timer"
+            >
               {formatTime(elapsed)}
             </div>
           )}
@@ -261,7 +344,6 @@ export default function CallModal() {
             </>
           ) : (
             <>
-              {/* Mic toggle */}
               <button
                 data-testid="toggle-mic"
                 onClick={toggleMic}
@@ -271,7 +353,6 @@ export default function CallModal() {
                 {micMuted ? <MicOffIcon /> : <MicIcon />}
               </button>
 
-              {/* Camera toggle (only in video calls) */}
               {isVideo && (
                 <button
                   data-testid="toggle-cam"
@@ -283,7 +364,6 @@ export default function CallModal() {
                 </button>
               )}
 
-              {/* Hang up */}
               <button
                 data-testid="hangup"
                 onClick={() => hangUp(true)}
@@ -299,8 +379,6 @@ export default function CallModal() {
     </div>
   )
 }
-
-// ── icon components ────────────────────────────────────────────────────────────
 
 function PhoneIcon() {
   return (

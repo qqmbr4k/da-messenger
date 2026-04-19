@@ -148,6 +148,99 @@ test.describe('4. Voice / Video Calls', () => {
     await ctx2.close()
   })
 
+  test('4.7 voice call connects — both sides show call timer and it increments', async ({ page, browser }) => {
+    test.setTimeout(120_000)
+    const id = uid()
+    await register(page, `connA${id}@test.com`, `connA${id}`)
+
+    const ctx2 = await browser.newContext({ permissions: ['camera', 'microphone'] })
+    const page2 = await ctx2.newPage()
+    await register(page2, `connB${id}@test.com`, `connB${id}`)
+
+    await sendFriendRequest(page, `connB${id}`)
+    await acceptFirstRequest(page2)
+
+    await openDmWith(page2, `connA${id}`)
+    await openDmWith(page, `connB${id}`)
+    await page.locator('[data-testid="voice-call-btn"]').click()
+
+    await expect(page2.locator('[data-testid="call-modal"]')).toBeVisible({ timeout: 10_000 })
+    await page2.locator('[data-testid="accept-call"]').click()
+
+    // Both sides should reach connected state — timer must appear AND increment (proves live connection)
+    await expect(page.locator('[data-testid="call-timer"]')).toBeVisible({ timeout: 30_000 })
+    await expect(page2.locator('[data-testid="call-timer"]')).toBeVisible({ timeout: 15_000 })
+
+    // Read initial timer value then wait 1.5s and confirm it advanced (timer is live, not stuck)
+    const t0 = await page.locator('[data-testid="call-timer"]').textContent()
+    await page.waitForTimeout(1500)
+    const t1 = await page.locator('[data-testid="call-timer"]').textContent()
+    expect(t0).not.toEqual(t1)
+
+    // Remote audio track must be attached (srcObject on remote-video element)
+    const hasRemoteStream = await page.evaluate(() => {
+      const v = document.querySelector('[data-testid="remote-video"]') as HTMLVideoElement | null
+      return !!(v?.srcObject)
+    })
+    expect(hasRemoteStream).toBe(true)
+
+    await page.locator('[data-testid="hangup"]').click()
+    await expect(page.locator('[data-testid="call-modal"]')).toBeHidden({ timeout: 5_000 })
+    await expect(page2.locator('[data-testid="call-modal"]')).toBeHidden({ timeout: 5_000 })
+
+    await ctx2.close()
+  })
+
+  test('4.8 video call connects — both sides show timer, timer increments, video streams active', async ({ page, browser }) => {
+    test.setTimeout(120_000)
+    const id = uid()
+    await register(page, `vidA${id}@test.com`, `vidA${id}`)
+
+    const ctx2 = await browser.newContext({ permissions: ['camera', 'microphone'] })
+    const page2 = await ctx2.newPage()
+    await register(page2, `vidB${id}@test.com`, `vidB${id}`)
+
+    await sendFriendRequest(page, `vidB${id}`)
+    await acceptFirstRequest(page2)
+
+    await openDmWith(page2, `vidA${id}`)
+    await openDmWith(page, `vidB${id}`)
+    await page.locator('[data-testid="video-call-btn"]').click()
+
+    await expect(page2.locator('[data-testid="call-modal"]')).toBeVisible({ timeout: 10_000 })
+    await page2.locator('[data-testid="accept-call"]').click()
+
+    // Both sides must reach connected state
+    await expect(page.locator('[data-testid="call-timer"]')).toBeVisible({ timeout: 30_000 })
+    await expect(page2.locator('[data-testid="call-timer"]')).toBeVisible({ timeout: 15_000 })
+
+    // Timer must increment (connection is alive)
+    const t0 = await page.locator('[data-testid="call-timer"]').textContent()
+    await page.waitForTimeout(1500)
+    const t1 = await page.locator('[data-testid="call-timer"]').textContent()
+    expect(t0).not.toEqual(t1)
+
+    // Local video element must have a live srcObject
+    const hasLocalStream = await page.evaluate(() => {
+      const v = document.querySelector('[data-testid="local-video"]') as HTMLVideoElement | null
+      return !!(v?.srcObject)
+    })
+    expect(hasLocalStream).toBe(true)
+
+    // Remote video element must have a live srcObject (tracks arrived via ontrack)
+    const hasRemoteStream = await page.evaluate(() => {
+      const v = document.querySelector('[data-testid="remote-video"]') as HTMLVideoElement | null
+      return !!(v?.srcObject)
+    })
+    expect(hasRemoteStream).toBe(true)
+
+    await page.locator('[data-testid="hangup"]').click()
+    await expect(page.locator('[data-testid="call-modal"]')).toBeHidden({ timeout: 5_000 })
+    await expect(page2.locator('[data-testid="call-modal"]')).toBeHidden({ timeout: 5_000 })
+
+    await ctx2.close()
+  })
+
   test('4.6 busy — second caller gets no stuck modal when callee is already in a call', async ({ page, browser }) => {
     test.setTimeout(90_000)
     const id = uid()

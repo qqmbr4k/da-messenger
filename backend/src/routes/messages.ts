@@ -134,7 +134,7 @@ router.post('/', requireAuth, async (req: AuthRequest & IoRequest, res: Response
       },
       select: { id: true },
     })
-    const authorUsername = (message as any).author?.username ?? ''
+    const authorUsername = message.author.username
     for (const { id: mentionedId } of mentionedUsers) {
       req.io.to(`user:${mentionedId}`).emit('mentioned', {
         roomId,

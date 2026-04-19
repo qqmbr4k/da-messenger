@@ -114,47 +114,68 @@ export function setupPresence(io: Server) {
     // All events are relayed only to the specific target user. The server
     // never inspects or stores SDP/ICE content.
 
-    socket.on('call_offer', async (data: { to: string; signal: unknown; isVideo: boolean }) => {
-      if (typeof data?.to !== 'string') return
-      // Only relay if a direct room exists between the two users
+    // Cache of peer userId → boolean (has shared DM) to avoid per-candidate DB queries
+    const dmPeerCache = new Map<string, boolean>()
+
+    async function hasDm(peerId: string): Promise<boolean> {
+      if (dmPeerCache.has(peerId)) return dmPeerCache.get(peerId)!
       const sharedDm = await prisma.room.findFirst({
         where: {
           type: 'DIRECT',
           members: { some: { userId } },
-          AND: [{ members: { some: { userId: data.to } } }],
+          AND: [{ members: { some: { userId: peerId } } }],
         },
         select: { id: true },
       })
-      if (!sharedDm) return
+      const result = !!sharedDm
+      dmPeerCache.set(peerId, result)
+      return result
+    }
+
+    socket.on('call_offer', async (data: { to: string; signal: unknown; isVideo: boolean }) => {
+      if (typeof data?.to !== 'string') { console.log(`[call] call_offer from ${userId}: invalid 'to'`); return }
+      console.log(`[call] call_offer from=${userId} to=${data.to} isVideo=${data.isVideo}`)
+      if (!(await hasDm(data.to))) { console.log(`[call] call_offer BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
       const caller = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
+      const sockets = await io.in(`user:${data.to}`).allSockets()
+      console.log(`[call] relaying call_offer to user:${data.to} (${sockets.size} sockets)`)
       io.to(`user:${data.to}`).emit('call_offer', {
         from: userId, signal: data.signal, isVideo: !!data.isVideo,
         fromUsername: caller?.username ?? userId,
       })
     })
 
-    socket.on('call_answer', (data: { to: string; signal: unknown }) => {
-      if (typeof data?.to !== 'string') return
+    socket.on('call_answer', async (data: { to: string; signal: unknown }) => {
+      if (typeof data?.to !== 'string') { console.log(`[call] call_answer from ${userId}: invalid 'to'`); return }
+      if (!(await hasDm(data.to))) { console.log(`[call] call_answer BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
+      console.log(`[call] call_answer from=${userId} to=${data.to}`)
       io.to(`user:${data.to}`).emit('call_answer', { from: userId, signal: data.signal })
     })
 
-    socket.on('call_ice', (data: { to: string; candidate: unknown }) => {
+    let iceCount = 0
+    socket.on('call_ice', async (data: { to: string; candidate: unknown }) => {
       if (typeof data?.to !== 'string') return
+      if (!(await hasDm(data.to))) { console.log(`[call] call_ice BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
+      iceCount++
+      if (iceCount === 1) console.log(`[call] call_ice relaying from=${userId} to=${data.to} (first candidate)`)
       io.to(`user:${data.to}`).emit('call_ice', { from: userId, candidate: data.candidate })
     })
 
     socket.on('call_end', (data: { to: string }) => {
       if (typeof data?.to !== 'string') return
+      console.log(`[call] call_end from=${userId} to=${data.to}`)
       io.to(`user:${data.to}`).emit('call_end', { from: userId })
     })
 
     socket.on('call_reject', (data: { to: string }) => {
       if (typeof data?.to !== 'string') return
+      console.log(`[call] call_reject from=${userId} to=${data.to}`)
       io.to(`user:${data.to}`).emit('call_reject', { from: userId })
     })
 
     socket.on('call_busy', (data: { to: string }) => {
       if (typeof data?.to !== 'string') return
+      console.log(`[call] call_busy from=${userId} to=${data.to}`)
       io.to(`user:${data.to}`).emit('call_busy', { from: userId })
     })
 
