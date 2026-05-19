@@ -2,6 +2,7 @@ import { Router, Response, Request } from 'express'
 import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
 import { requireAuth, AuthRequest } from '../middleware/auth'
+import { asyncHandler } from '../lib/asyncHandler'
 
 interface IoRequest extends Request { io?: Server }
 
@@ -64,7 +65,7 @@ async function nextRoomSeq(roomId: string): Promise<number> {
 //   ?limit=50                       → latest N messages (initial load)
 //   ?beforeSeq=N&limit=50           → older messages for infinite scroll
 //   ?afterSeq=N&limit=100           → messages after a watermark (gap fill / reconnect sync)
-router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' })
@@ -98,10 +99,10 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
   // Serialize BigInt seq to number for JSON
   res.json(result.map(m => ({ ...m, seq: m.seq !== null ? Number(m.seq) : null })))
-})
+}))
 
 // POST send message
-router.post('/', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+router.post('/', requireAuth, asyncHandler(async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' })
@@ -146,10 +147,10 @@ router.post('/', requireAuth, async (req: AuthRequest & IoRequest, res: Response
   }
 
   res.status(201).json(payload)
-})
+}))
 
 // PATCH edit
-router.patch('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+router.patch('/:messageId', requireAuth, asyncHandler(async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' }); return
@@ -169,10 +170,10 @@ router.patch('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, re
   const payload = { ...updated, seq: Number(updated.seq) }
   req.io?.to(`room:${roomId}`).emit('message_edited', payload)
   res.json(payload)
-})
+}))
 
 // DELETE message
-router.delete('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+router.delete('/:messageId', requireAuth, asyncHandler(async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' }); return
@@ -188,10 +189,10 @@ router.delete('/:messageId', requireAuth, async (req: AuthRequest & IoRequest, r
   await prisma.message.update({ where: { id: req.params.messageId }, data: { deletedAt: new Date() } })
   req.io?.to(`room:${roomId}`).emit('message_deleted', { id: req.params.messageId, roomId })
   res.json({ ok: true })
-})
+}))
 
 // POST toggle emoji reaction on a message
-router.post('/:messageId/reactions', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+router.post('/:messageId/reactions', requireAuth, asyncHandler(async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId, messageId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' }); return
@@ -223,10 +224,10 @@ router.post('/:messageId/reactions', requireAuth, async (req: AuthRequest & IoRe
 
   req.io?.to(`room:${roomId}`).emit('reaction_updated', { messageId, reactions, roomId })
   res.json({ reactions })
-})
+}))
 
 // POST forward a message to another room (copies content + re-links attachments)
-router.post('/:messageId/forward', requireAuth, async (req: AuthRequest & IoRequest, res: Response) => {
+router.post('/:messageId/forward', requireAuth, asyncHandler(async (req: AuthRequest & IoRequest, res: Response) => {
   const { roomId, messageId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' }); return
@@ -271,10 +272,10 @@ router.post('/:messageId/forward', requireAuth, async (req: AuthRequest & IoRequ
   const payload = { ...newMsg, seq: Number(newMsg.seq) }
   req.io?.to(`room:${targetRoomId}`).emit('message', { ...payload, roomId: targetRoomId })
   res.status(201).json(payload)
-})
+}))
 
 // GET room's current max seq (lets clients know if they're behind)
-router.get('/seq', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/seq', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' })
@@ -282,10 +283,10 @@ router.get('/seq', requireAuth, async (req: AuthRequest, res: Response) => {
   }
   const row = await prisma.roomSeq.findUnique({ where: { roomId } })
   res.json({ roomId, seq: row ? Number(row.seq) : 0 })
-})
+}))
 
 // POST update the user's watermark for this room
-router.post('/watermark', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/watermark', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { roomId } = req.params
   if (!(await assertRoomAccess(roomId, req.userId!))) {
     res.status(403).json({ error: 'Access denied' }); return
@@ -299,6 +300,6 @@ router.post('/watermark', requireAuth, async (req: AuthRequest, res: Response) =
     update: { lastSeq: BigInt(seq) },
   })
   res.json({ ok: true })
-})
+}))
 
 export default router

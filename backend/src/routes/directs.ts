@@ -1,3 +1,4 @@
+import { asyncHandler } from '../lib/asyncHandler'
 import { Router, Response, Request } from 'express'
 import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
@@ -8,7 +9,7 @@ interface IoRequest extends Request { io?: Server }
 const router = Router()
 
 // Get or create DM room between me and another user
-router.post('/open', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/open', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { userId } = req.body
   if (!userId || userId === req.userId) {
     res.status(400).json({ error: 'invalid userId' })
@@ -77,6 +78,6 @@ router.post('/open', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 
   res.status(201).json(room)
-})
+}))
 
 export default router

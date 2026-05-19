@@ -1,3 +1,4 @@
+import { asyncHandler } from '../lib/asyncHandler'
 import { Router, Response, Request } from 'express'
 import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
@@ -9,7 +10,7 @@ interface IoRequest extends Request { io?: Server }
 const router = Router()
 
 // Public room catalog
-router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { search } = req.query
   const rooms = await prisma.room.findMany({
     where: {
@@ -27,10 +28,10 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     orderBy: { name: 'asc' },
   })
   res.json(rooms)
-})
+}))
 
 // My rooms (all types where I'm a member)
-router.get('/my', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/my', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const memberships = await prisma.roomMember.findMany({
     where: { userId: req.userId },
     include: {
@@ -47,10 +48,10 @@ router.get('/my', requireAuth, async (req: AuthRequest, res: Response) => {
     },
   })
   res.json(memberships.map(m => m.room))
-})
+}))
 
 // Create room
-router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { name, description, type } = req.body
   if (!name) {
     res.status(400).json({ error: 'name is required' })
@@ -74,11 +75,11 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     }
     throw e
   }
-})
+}))
 
 // Get single room
 // Get my pending invitations — must be defined before /:id to avoid param capture
-router.get('/invitations/pending', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/invitations/pending', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const invs = await prisma.roomInvitation.findMany({
     where: { userId: req.userId },
     include: {
@@ -87,9 +88,9 @@ router.get('/invitations/pending', requireAuth, async (req: AuthRequest, res: Re
     },
   })
   res.json(invs)
-})
+}))
 
-router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/:id', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({
     where: { id: req.params.id },
     include: {
@@ -108,10 +109,10 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     return
   }
   res.json(room)
-})
+}))
 
 // Bulk presence for all room members
-router.get('/:id/presence', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/:id/presence', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const isMember = await prisma.roomMember.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
   })
@@ -124,10 +125,10 @@ router.get('/:id/presence', requireAuth, async (req: AuthRequest, res: Response)
     select: { userId: true },
   })
   res.json(members.map(m => ({ userId: m.userId, status: getUserStatus(m.userId) })))
-})
+}))
 
 // Join public room
-router.post('/:id/join', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/join', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room) {
     res.status(404).json({ error: 'Room not found' })
@@ -158,10 +159,10 @@ router.post('/:id/join', requireAuth, async (req: AuthRequest, res: Response) =>
     }
   }
   res.json({ ok: true })
-})
+}))
 
 // Leave room
-router.post('/:id/leave', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/leave', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room) {
     res.status(404).json({ error: 'Room not found' })
@@ -180,10 +181,10 @@ router.post('/:id/leave', requireAuth, async (req: AuthRequest, res: Response) =
     io.to(`user:${req.userId!}`).emit('removed_from_room', { roomId: req.params.id })
   }
   res.json({ ok: true })
-})
+}))
 
 // Update room settings (owner only)
-router.put('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.put('/:id', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room || room.ownerId !== req.userId) {
     res.status(403).json({ error: 'Only the owner can update this room' })
@@ -202,10 +203,10 @@ router.put('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     roomId: req.params.id, name: updated.name, description: updated.description, type: updated.type,
   })
   res.json(updated)
-})
+}))
 
 // Delete room (owner only)
-router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room || room.ownerId !== req.userId) {
     res.status(403).json({ error: 'Only the owner can delete this room' })
@@ -220,12 +221,12 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     }
   }
   res.json({ ok: true })
-})
+}))
 
 // --- Admin actions ---
 
 // Get banned users
-router.get('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/:id/bans', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
   })
@@ -241,10 +242,10 @@ router.get('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) => 
     },
   })
   res.json(bans)
-})
+}))
 
 // Ban user
-router.post('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/bans', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { userId } = req.body
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
@@ -275,10 +276,10 @@ router.post('/:id/bans', requireAuth, async (req: AuthRequest, res: Response) =>
     io.to(`user:${userId}`).emit('removed_from_room', { roomId: req.params.id })
   }
   res.json({ ok: true })
-})
+}))
 
 // Unban user
-router.delete('/:id/bans/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id/bans/:userId', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
   })
@@ -290,10 +291,10 @@ router.delete('/:id/bans/:userId', requireAuth, async (req: AuthRequest, res: Re
     where: { userId: req.params.userId, roomId: req.params.id },
   })
   res.json({ ok: true })
-})
+}))
 
 // Make admin
-router.post('/:id/admins', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/admins', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { userId } = req.body
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room || room.ownerId !== req.userId) {
@@ -314,10 +315,10 @@ router.post('/:id/admins', requireAuth, async (req: AuthRequest, res: Response) 
   })
   ;(req as IoRequest).io?.to(`room:${req.params.id}`).emit('member_role_changed', { roomId: req.params.id, userId, isAdmin: true })
   res.json({ ok: true })
-})
+}))
 
 // Remove admin
-router.delete('/:id/admins/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id/admins/:userId', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room) {
     res.status(404).json({ error: 'Room not found' })
@@ -339,10 +340,10 @@ router.delete('/:id/admins/:userId', requireAuth, async (req: AuthRequest, res: 
   })
   ;(req as IoRequest).io?.to(`room:${req.params.id}`).emit('member_role_changed', { roomId: req.params.id, userId: req.params.userId, isAdmin: false })
   res.json({ ok: true })
-})
+}))
 
 // Kick member — removes from room without adding a ban (user can rejoin via invite)
-router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id/members/:userId', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const isAdmin = await prisma.roomAdmin.findUnique({
     where: { userId_roomId: { userId: req.userId!, roomId: req.params.id } },
   })
@@ -367,10 +368,10 @@ router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res:
     io.to(`user:${req.params.userId}`).emit('removed_from_room', { roomId: req.params.id })
   }
   res.json({ ok: true })
-})
+}))
 
 // Invite user to private room
-router.post('/:id/invitations', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/invitations', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { username } = req.body
   const room = await prisma.room.findUnique({ where: { id: req.params.id } })
   if (!room) {
@@ -402,10 +403,10 @@ router.post('/:id/invitations', requireAuth, async (req: AuthRequest, res: Respo
     invitedBy: inviterUser?.username,
   })
   res.json({ ok: true })
-})
+}))
 
 // Accept invitation
-router.post('/:id/invitations/accept', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/invitations/accept', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const inv = await prisma.roomInvitation.findUnique({
     where: { roomId_userId: { roomId: req.params.id, userId: req.userId! } },
   })
@@ -439,6 +440,6 @@ router.post('/:id/invitations/accept', requireAuth, async (req: AuthRequest, res
     io.to(`user:${req.userId!}`).emit('joined_room', { roomId: req.params.id, room: { id: room.id, name: room.name, description: room.description, type: room.type, ownerId: room.ownerId } })
   }
   res.json({ ok: true })
-})
+}))
 
 export default router

@@ -1,3 +1,4 @@
+import { asyncHandler } from '../lib/asyncHandler'
 import { Router, Response, Request } from 'express'
 import { Server } from 'socket.io'
 import prisma from '../lib/prisma'
@@ -17,7 +18,7 @@ function friendshipWhere(userAId: string, userBId: string) {
 }
 
 // Get friend list
-router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const friendships = await prisma.friendship.findMany({
     where: {
       OR: [{ userAId: req.userId }, { userBId: req.userId }],
@@ -31,10 +32,10 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     f.userAId === req.userId ? f.userB : f.userA
   )
   res.json(friends)
-})
+}))
 
 // Get pending friend requests
-router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/requests', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const received = await prisma.friendRequest.findMany({
     where: { recipientId: req.userId, status: 'PENDING' },
     include: { requester: { select: { id: true, username: true } } },
@@ -44,10 +45,10 @@ router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => 
     include: { recipient: { select: { id: true, username: true } } },
   })
   res.json({ received, sent })
-})
+}))
 
 // Send friend request
-router.post('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/requests', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { username, message } = req.body
   if (!username) {
     res.status(400).json({ error: 'username required' })
@@ -93,10 +94,10 @@ router.post('/requests', requireAuth, async (req: AuthRequest, res: Response) =>
     }
     throw e
   }
-})
+}))
 
 // Accept friend request
-router.post('/requests/:id/accept', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/requests/:id/accept', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const request = await prisma.friendRequest.findUnique({ where: { id: req.params.id } })
   if (!request || request.recipientId !== req.userId) {
     res.status(404).json({ error: 'Request not found' })
@@ -107,10 +108,10 @@ router.post('/requests/:id/accept', requireAuth, async (req: AuthRequest, res: R
     prisma.friendship.create({ data: { userAId: request.requesterId, userBId: request.recipientId } }),
   ])
   res.json({ ok: true })
-})
+}))
 
 // Decline friend request
-router.post('/requests/:id/decline', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/requests/:id/decline', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const request = await prisma.friendRequest.findUnique({ where: { id: req.params.id } })
   if (!request || request.recipientId !== req.userId) {
     res.status(404).json({ error: 'Request not found' })
@@ -118,16 +119,16 @@ router.post('/requests/:id/decline', requireAuth, async (req: AuthRequest, res: 
   }
   await prisma.friendRequest.update({ where: { id: req.params.id }, data: { status: 'DECLINED' } })
   res.json({ ok: true })
-})
+}))
 
 // Remove friend
-router.delete('/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:userId', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   await prisma.friendship.deleteMany({ where: friendshipWhere(req.userId!, req.params.userId) })
   res.json({ ok: true })
-})
+}))
 
 // Ban user
-router.post('/bans', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/bans', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { userId } = req.body
   if (!userId || userId === req.userId) {
     res.status(400).json({ error: 'invalid userId' })
@@ -154,23 +155,23 @@ router.post('/bans', requireAuth, async (req: AuthRequest, res: Response) => {
     })
   })
   res.json({ ok: true })
-})
+}))
 
 // Unban user
-router.delete('/bans/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/bans/:userId', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   await prisma.userBan.deleteMany({
     where: { issuerId: req.userId, bannedId: req.params.userId },
   })
   res.json({ ok: true })
-})
+}))
 
 // Get bans issued by me
-router.get('/bans', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/bans', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const bans = await prisma.userBan.findMany({
     where: { issuerId: req.userId },
     include: { banned: { select: { id: true, username: true } } },
   })
   res.json(bans)
-})
+}))
 
 export default router

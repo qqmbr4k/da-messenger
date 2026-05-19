@@ -1,3 +1,4 @@
+import { asyncHandler } from '../lib/asyncHandler'
 import { Router, Response } from 'express'
 import prisma from '../lib/prisma'
 import { requireAuth, AuthRequest } from '../middleware/auth'
@@ -5,7 +6,7 @@ import { getUserStatus } from '../services/presence'
 
 const router = Router()
 
-router.get('/search', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/search', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { username } = req.query
   if (!username) {
     res.status(400).json({ error: 'username query required' })
@@ -17,9 +18,9 @@ router.get('/search', requireAuth, async (req: AuthRequest, res: Response) => {
     take: 20,
   })
   res.json(users)
-})
+}))
 
-router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/:id', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   const target = await prisma.user.findUnique({
     where: { id: req.params.id },
     select: { id: true, username: true, createdAt: true },
@@ -61,10 +62,10 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     isBanned: !!ban,
     hasPendingRequest: !!pendingRequest,
   })
-})
+}))
 
-router.get('/:id/status', requireAuth, async (req: AuthRequest, res: Response) => {
+router.get('/:id/status', requireAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
   res.json({ userId: req.params.id, status: getUserStatus(req.params.id) })
-})
+}))
 
 export default router

@@ -136,7 +136,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
     restart: unless-stopped
     ports:
       - "3000:3000"
