@@ -101,6 +101,7 @@ services:
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_REGION: us-east-1
+    restart: unless-stopped
     ports:
       - "4000:4000"
     depends_on:
@@ -135,6 +136,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    ports:
+    restart: unless-stopped
     ports:
       - "3000:3000"
     depends_on:
