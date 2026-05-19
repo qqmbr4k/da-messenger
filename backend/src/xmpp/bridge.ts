@@ -52,7 +52,7 @@ class XmppBridge extends EventEmitter {
   }
 
   connect() {
-    if (this.socket) return
+    if (this.socket || this.reconnectTimer) return
     this.socket = new net.Socket()
 
     this.socket.on('connect', () => {
@@ -69,21 +69,34 @@ class XmppBridge extends EventEmitter {
 
     this.socket.on('error', (err: Error) => {
       console.error('[XMPP Bridge] Socket error:', err.message)
+      this.socket?.destroy()
+      this.socket = null
+      this.stats.connected = false
+      this.stats.connectedAt = null
+      this.scheduleReconnect()
     })
 
     this.socket.on('close', () => {
-      console.log('[XMPP Bridge] Disconnected, will retry in 10s')
-      this.stats.connected = false
-      this.stats.connectedAt = null
-      this.socket = null
-      this.reconnectTimer = setTimeout(() => {
-        this.stats.reconnectAttempts++
-        this.connect()
-      }, 10_000)
+      if (this.socket) {
+        console.log('[XMPP Bridge] Disconnected, will retry in 10s')
+        this.stats.connected = false
+        this.stats.connectedAt = null
+        this.socket = null
+        this.scheduleReconnect()
+      }
     })
 
     console.log(`[XMPP Bridge] Connecting to ${EJABBERD_HOST}:${EJABBERD_PORT}...`)
     this.socket.connect(EJABBERD_PORT, EJABBERD_HOST)
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.stats.reconnectAttempts++
+      this.connect()
+    }, 10_000)
   }
 
   private send(xml: string) {
@@ -259,7 +272,10 @@ class XmppBridge extends EventEmitter {
   }
 
   stop() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     this.socket?.destroy()
     this.socket = null
   }
