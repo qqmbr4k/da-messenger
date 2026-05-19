@@ -32,6 +32,12 @@ async function broadcastPresence(io: Server, userId: string, status: PresenceSta
   }
 }
 
+function onAsync(socket: Socket, event: string, handler: (...args: any[]) => Promise<void>) {
+  socket.on(event, (...args: any[]) => {
+    handler(...args).catch(err => console.error(`[presence] ${event} error:`, err))
+  })
+}
+
 export function setupPresence(io: Server) {
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.cookie?.match(/token=([^;]+)/)?.[1]
@@ -47,7 +53,7 @@ export function setupPresence(io: Server) {
     }
   })
 
-  io.on('connection', async (socket: Socket) => {
+  io.on('connection', (socket: Socket) => {
     const userId = (socket as any).userId as string
 
     // Register tab
@@ -55,14 +61,14 @@ export function setupPresence(io: Server) {
     const tabs = userTabs.get(userId)!
     tabs.set(socket.id, { socketId: socket.id, userId, lastActivity: Date.now(), status: 'online' })
 
-    // Join room channels
-    const memberships = await prisma.roomMember.findMany({ where: { userId }, select: { roomId: true } })
-    for (const { roomId } of memberships) {
-      socket.join(`room:${roomId}`)
-    }
-    socket.join(`user:${userId}`)
-
-    broadcastPresence(io, userId, 'online')
+    // Join room channels then broadcast online status
+    prisma.roomMember.findMany({ where: { userId }, select: { roomId: true } })
+      .then(memberships => {
+        for (const { roomId } of memberships) socket.join(`room:${roomId}`)
+        socket.join(`user:${userId}`)
+        return broadcastPresence(io, userId, 'online')
+      })
+      .catch(err => console.error('[presence] connection setup error:', err))
 
     // Heartbeat from client (sent on user activity)
     socket.on('heartbeat', () => {
@@ -70,22 +76,22 @@ export function setupPresence(io: Server) {
       if (tab) {
         const wasAfk = computeUserStatus(tabs) !== 'online'
         tab.lastActivity = Date.now()
-        if (wasAfk) broadcastPresence(io, userId, 'online')
+        if (wasAfk) broadcastPresence(io, userId, 'online').catch(err => console.error('[presence] heartbeat broadcast error:', err))
       }
     })
 
     // Periodic AFK check — compare against last-broadcast status so transitions fire
     let lastBroadcastStatus: PresenceStatus = 'online'
-    const afkTimer = setInterval(async () => {
+    const afkTimer = setInterval(() => {
       const nowStatus = computeUserStatus(tabs)
       if (nowStatus !== lastBroadcastStatus) {
         lastBroadcastStatus = nowStatus
-        await broadcastPresence(io, userId, nowStatus)
+        broadcastPresence(io, userId, nowStatus).catch(err => console.error('[presence] afk broadcast error:', err))
       }
     }, 15_000)
 
     // Join a room channel and reply with current seq so client can detect gaps
-    socket.on('join_room', async (roomId: string) => {
+    onAsync(socket, 'join_room', async (roomId: string) => {
       socket.join(`room:${roomId}`)
       const row = await prisma.roomSeq.findUnique({ where: { roomId } })
       socket.emit('room_seq', { roomId, seq: row ? Number(row.seq) : 0 })
@@ -105,7 +111,7 @@ export function setupPresence(io: Server) {
     })
 
     // Typing indicator
-    socket.on('typing', async (data: { roomId: string }) => {
+    onAsync(socket, 'typing', async (data: { roomId: string }) => {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
       socket.to(`room:${data.roomId}`).emit('typing', { userId, username: user?.username, roomId: data.roomId })
     })
@@ -132,7 +138,7 @@ export function setupPresence(io: Server) {
       return result
     }
 
-    socket.on('call_offer', async (data: { to: string; signal: unknown; isVideo: boolean }) => {
+    onAsync(socket, 'call_offer', async (data: { to: string; signal: unknown; isVideo: boolean }) => {
       if (typeof data?.to !== 'string') { console.log(`[call] call_offer from ${userId}: invalid 'to'`); return }
       console.log(`[call] call_offer from=${userId} to=${data.to} isVideo=${data.isVideo}`)
       if (!(await hasDm(data.to))) { console.log(`[call] call_offer BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
@@ -145,7 +151,7 @@ export function setupPresence(io: Server) {
       })
     })
 
-    socket.on('call_answer', async (data: { to: string; signal: unknown }) => {
+    onAsync(socket, 'call_answer', async (data: { to: string; signal: unknown }) => {
       if (typeof data?.to !== 'string') { console.log(`[call] call_answer from ${userId}: invalid 'to'`); return }
       if (!(await hasDm(data.to))) { console.log(`[call] call_answer BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
       console.log(`[call] call_answer from=${userId} to=${data.to}`)
@@ -153,7 +159,7 @@ export function setupPresence(io: Server) {
     })
 
     let iceCount = 0
-    socket.on('call_ice', async (data: { to: string; candidate: unknown }) => {
+    onAsync(socket, 'call_ice', async (data: { to: string; candidate: unknown }) => {
       if (typeof data?.to !== 'string') return
       if (!(await hasDm(data.to))) { console.log(`[call] call_ice BLOCKED — no shared DM between ${userId} and ${data.to}`); return }
       iceCount++
@@ -179,7 +185,7 @@ export function setupPresence(io: Server) {
       io.to(`user:${data.to}`).emit('call_busy', { from: userId })
     })
 
-    socket.on('disconnect', async () => {
+    onAsync(socket, 'disconnect', async () => {
       clearInterval(afkTimer)
       tabs.delete(socket.id)
       const status = computeUserStatus(tabs)
